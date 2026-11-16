@@ -29,6 +29,8 @@ pub fn fallback_shortcuts() -> Vec<String> {
 pub struct Config {
     /// URL de base du serveur LanguageTool (sans /v2).
     pub server_url: String,
+    /// URL du serveur Grammalecte (second moteur, spécialisé en français). Vide = désactivé.
+    pub grammalecte_url: String,
     /// Code langue LanguageTool ("fr", "en-US", "auto"…).
     pub language: String,
     /// Raccourci global (format Tauri : "Ctrl+Alt+Space", "Cmd+Shift+Space"…).
@@ -67,6 +69,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             server_url: PUBLIC_SERVER.into(),
+            grammalecte_url: String::new(),
             language: "fr".into(),
             shortcut: default_shortcut(),
             picky: false,
@@ -105,6 +108,7 @@ impl Config {
     /// Nettoie les champs saisis par l'utilisateur.
     pub fn normalized(mut self) -> Self {
         self.server_url = normalize_server_url(&self.server_url);
+        self.grammalecte_url = normalize_grammalecte_url(&self.grammalecte_url);
         self.language = self.language.trim().to_string();
         if self.language.is_empty() {
             self.language = "fr".into();
@@ -138,6 +142,24 @@ fn dedup_trimmed(items: Vec<String>) -> Vec<String> {
     out
 }
 
+/// URL de base du serveur Grammalecte ; chaîne vide si non configuré.
+pub fn normalize_grammalecte_url(raw: &str) -> String {
+    let mut url = raw.trim().trim_end_matches('/').to_string();
+    if url.is_empty() {
+        return url;
+    }
+    if !url.contains("://") {
+        url = format!("http://{url}");
+    }
+    for suffix in ["/gc_text/fr", "/get_options/fr"] {
+        if let Some(stripped) = url.strip_suffix(suffix) {
+            url = stripped.to_string();
+            break;
+        }
+    }
+    url.trim_end_matches('/').to_string()
+}
+
 /// Accepte "monserveur:8010", "http://x/v2", "https://x/v2/check/"… et renvoie l'URL de base.
 pub fn normalize_server_url(raw: &str) -> String {
     let mut url = raw.trim().trim_end_matches('/').to_string();
@@ -167,6 +189,9 @@ mod tests {
         assert_eq!(normalize_server_url("https://lt.example.org/v2/check/"), "https://lt.example.org");
         assert_eq!(normalize_server_url(" http://100.64.0.5:8010/v2 "), "http://100.64.0.5:8010");
         assert_eq!(normalize_server_url("https://lt.example.org/sub/"), "https://lt.example.org/sub");
+        assert_eq!(normalize_grammalecte_url("  "), "");
+        assert_eq!(normalize_grammalecte_url("gl.lan:8011/"), "http://gl.lan:8011");
+        assert_eq!(normalize_grammalecte_url("http://100.64.0.5:8011/gc_text/fr"), "http://100.64.0.5:8011");
     }
 
     #[test]

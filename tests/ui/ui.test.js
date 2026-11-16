@@ -112,6 +112,9 @@ const PAGE = 'file://' + path.resolve(__dirname, '../../src/index.html');
     assert.strictEqual(await page.textContent('#shortcut-keys'), 'Ctrl + Alt + K');
     assert.ok((await page.textContent('#shortcut-status')).includes('Enregistrer'));
     assert.ok(!(await page.isHidden('#bubble-settings')), 'options de la bulle visibles sous Windows');
+    await page.fill('input[name=grammalecte_url]', 'http://100.64.0.5:8011');
+    await page.click('#btn-test-gl');
+    await page.waitForFunction(() => document.getElementById('test-gl-result').textContent.startsWith('Connexion réussie à Grammalecte'));
     await page.click('#btn-test');
     await page.waitForFunction(() => document.getElementById('test-result').textContent.startsWith('Connexion réussie'));
     await page.screenshot({ path: `${OUT}/ui-settings.png` });
@@ -120,6 +123,7 @@ const PAGE = 'file://' + path.resolve(__dirname, '../../src/index.html');
     const saved = await page.evaluate(() => window.__calls.filter((c) => c[0] === 'save_config').pop()[1].config);
     assert.strictEqual(saved.shortcut, 'Ctrl+Alt+K');
     assert.strictEqual(saved.bubble, true);
+    assert.strictEqual(saved.grammalecte_url, 'http://100.64.0.5:8011');
     assert.deepStrictEqual(saved.bubble_excluded_apps, ['KeePassXC.exe']);
 
     // Ouverture depuis la bulle : champ entier

@@ -56,6 +56,7 @@ let recording = false;
 // Correction appliquée par Coquille elle-même : la liste des fautes est déjà à jour
 // (décalée), on garde l'analyse de la phrase d'origine sans relancer de vérification.
 let selfEdit = null;
+let engineWarning = null;
 const ignored = new Set();
 
 const isMac = () => platform.os === 'macos';
@@ -92,7 +93,19 @@ function showNotice(message, level = 'info') {
   el.notice.className = `notice ${level}`;
   el.notice.hidden = false;
 }
-function hideNotice() { el.notice.hidden = true; }
+function hideNotice() { el.notice.hidden = true; delete el.notice.dataset.engine; }
+
+// Avertissement d'un moteur (ex. Grammalecte injoignable) : affiché une fois, retiré quand il disparaît.
+function showEngineWarning(w) {
+  if (w === engineWarning) return;
+  engineWarning = w;
+  if (w) {
+    showNotice(w, 'warn');
+    el.notice.dataset.engine = '1';
+  } else if (el.notice.dataset.engine) {
+    hideNotice();
+  }
+}
 
 // Rend visibles les espaces spéciales dans les suggestions (typographie française).
 function displaySuggestion(r) {
@@ -130,6 +143,7 @@ async function runCheck() {
     if (seq !== checkSeq || el.text.value !== text) return; // résultat périmé
     lastError = null;
     detectedLang = languageName(res.language_code, res.language);
+    showEngineWarning((res.warnings || []).join(' ') || null);
     issues = res.issues
       .filter((i) => !ignored.has(ignoreKey(i)))
       .map((i) => ({ ...i, key: ++issueSeq }));
@@ -206,6 +220,7 @@ function issueCard(i, inPopover = false) {
     h('div', { class: 'card-head' }, [
       h('span', { class: 'kind', text: KIND_LABEL[i.kind] || i.kind }),
       h('span', { class: 'orig', text: orig, title: i.original }),
+      i.source === 'grammalecte' ? h('span', { class: 'src', text: 'Grammalecte', title: 'Remarque de Grammalecte' }) : null,
     ]),
     h('div', { class: 'msg', text: i.message }),
   );
@@ -556,6 +571,9 @@ async function openSettings() {
   hidePopover();
   const f = el.form.elements;
   f.server_url.value = config.server_url;
+  f.grammalecte_url.value = config.grammalecte_url || '';
+  $('test-gl-result').textContent = '';
+  $('test-gl-result').className = 'small';
   f.username.value = config.username;
   f.api_key.value = config.api_key;
   pendingShortcut = null;
@@ -585,6 +603,7 @@ async function saveSettings(ev) {
   const next = {
     ...config,
     server_url: f.server_url.value,
+    grammalecte_url: f.grammalecte_url.value,
     username: f.username.value,
     api_key: f.api_key.value,
     shortcut: pendingShortcut || config.shortcut,
@@ -616,6 +635,19 @@ async function saveSettings(ev) {
   else if (!el.notice.classList.contains('info')) hideNotice();
   runCheck();
   toast('Paramètres enregistrés');
+}
+
+async function testGrammalecte() {
+  const out = $('test-gl-result');
+  out.className = 'small muted';
+  out.textContent = 'Test en cours…';
+  try {
+    out.textContent = await invoke('test_grammalecte', { url: el.form.elements.grammalecte_url.value });
+    out.className = 'small ok-text';
+  } catch (e) {
+    out.textContent = String(e);
+    out.className = 'small error-text';
+  }
 }
 
 async function testServer() {
@@ -775,6 +807,7 @@ function bindEvents() {
   el.form.addEventListener('submit', saveSettings);
   $('btn-cancel').addEventListener('click', () => el.dialog.close());
   $('btn-test').addEventListener('click', testServer);
+  $('btn-test-gl').addEventListener('click', testGrammalecte);
   $('btn-public').addEventListener('click', () => { el.form.elements.server_url.value = PUBLIC_SERVER; testServer(); });
   $('shortcut-rec').addEventListener('click', startRecording);
   document.addEventListener('keydown', onRecordKey, true);

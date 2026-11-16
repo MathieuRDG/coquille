@@ -3,6 +3,8 @@
 
 mod bubble;
 mod config;
+mod engines;
+mod grammalecte;
 mod langtool;
 mod selection;
 
@@ -227,7 +229,16 @@ fn shortcut_supported() -> bool {
 #[tauri::command]
 async fn check_text(state: State<'_, AppState>, text: String, language: String) -> Result<langtool::CheckResult, String> {
     let cfg = state.config.lock().unwrap().clone();
-    langtool::check(&state.http, &cfg, &text, &language).await
+    engines::check_all(&state.http, &cfg, &text, &language).await
+}
+
+#[tauri::command]
+async fn test_grammalecte(state: State<'_, AppState>, url: String) -> Result<String, String> {
+    let url = config::normalize_grammalecte_url(&url);
+    if url.is_empty() {
+        return Err("Indique l'adresse de ton serveur Grammalecte (ex. http://100.x.y.z:8011).".into());
+    }
+    grammalecte::test(&state.http, &url).await
 }
 
 #[tauri::command]
@@ -565,6 +576,7 @@ fn main() {
             check_text,
             list_languages,
             test_server,
+            test_grammalecte,
             get_config,
             save_config,
             add_to_dictionary,

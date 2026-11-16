@@ -55,6 +55,7 @@ function card(i) {
     h('div', { class: 'card-head' }, [
       h('span', { class: 'kind', text: KIND_LABEL[i.kind] || i.kind }),
       h('span', { class: 'orig', text: i.original.trim() ? i.original : '␣', title: i.original }),
+      i.source === 'grammalecte' ? h('span', { class: 'src', text: 'Grammalecte' }) : null,
     ]),
     h('div', { class: 'msg', text: i.message }),
     sugg,

@@ -9,6 +9,7 @@
 - **Bulle de correction en direct** sous Windows : une pastille à côté du champ où tu écris, sans ouvrir l'application.
 - Suggestions en un clic, **Tout corriger**, annulation avec Ctrl+Z, dictionnaire personnel, règles désactivables.
 - Moteur **[LanguageTool](https://languagetool.org)** : le serveur public, ou **ton propre serveur** (Docker, par exemple sur un Proxmox accessible via Tailscale).
+- Second moteur facultatif, **[Grammalecte](https://grammalecte.net)**, spécialisé dans le français : il complète LanguageTool sur les accords, la conjugaison, les participes passés et le subjonctif.
 - Binaire léger (≈ 6 Mo sous Linux) grâce à [Tauri](https://tauri.app) (Rust + WebView du système).
 
 ## Téléchargement
@@ -26,7 +27,7 @@ Les binaires ne sont pas signés : Windows et macOS affichent un avertissement a
 
 ## Est-ce de l'IA ?
 
-Non, pas au sens « ChatGPT ». LanguageTool est un moteur **à règles** : plusieurs milliers de règles grammaticales écrites par des linguistes, un dictionnaire orthographique et, en option, des statistiques de fréquence de mots (les « n-grammes »). C'est la même famille de technologie que le cœur d'**Antidote** (analyse linguistique symbolique). **QuillBot**, lui, repose surtout sur des modèles d'IA, en particulier pour la reformulation.
+Non, pas au sens « ChatGPT ». LanguageTool est un moteur **à règles** : plusieurs milliers de règles grammaticales écrites par des linguistes, un dictionnaire orthographique et, en option, des statistiques de fréquence de mots (les « n-grammes »). C'est la même famille de technologie que le cœur d'**Antidote** (analyse linguistique symbolique). **Grammalecte**, le second moteur facultatif, fonctionne de la même façon, avec des règles écrites spécifiquement pour le français. **QuillBot**, lui, repose surtout sur des modèles d'IA, en particulier pour la reformulation.
 
 Conséquences :
 
@@ -147,6 +148,18 @@ Autres options de ligne de commande : `--cache` (démarrer en arrière-plan) et 
 
 Par défaut, Coquille utilise `https://api.languagetool.org`, gratuit mais limité en requêtes par minute et en taille de texte. Pour un usage quotidien, héberge ton serveur : un `docker compose up -d` suffit, et les instructions pour **Proxmox (LXC) + Tailscale** sont dans **[server/README.md](server/README.md)**. Saisis ensuite son adresse dans ⚙ › Serveur LanguageTool, puis clique sur **Tester**.
 
+### Grammalecte, second moteur (facultatif)
+
+Pour aller plus loin sur la conjugaison et les accords, ajoute **Grammalecte**, un correcteur libre spécialisé dans le français. Il repère par exemple :
+
+- « il faut que tu viens » → « viennes » (subjonctif) ;
+- « la voiture que j'ai acheté » → « achetée » (participe passé et complément placé avant) ;
+- « je t'ai renvoyer » → « renvoyé ».
+
+Coquille interroge les deux moteurs en même temps et fusionne leurs remarques sans doublons ; celles de Grammalecte portent la mention « Grammalecte ». Il n'existe pas de serveur Grammalecte public : le `docker-compose.yml` du dossier `server/` le construit à partir du paquet officiel (environ 220 Mo de RAM). Indique ensuite son adresse dans ⚙ › Second moteur : Grammalecte, puis clique sur **Tester**. Si le serveur ne répond pas, Coquille continue avec LanguageTool seul et le signale.
+
+### Extension navigateur
+
 Avec ton serveur, tu peux aussi brancher l'**extension navigateur officielle LanguageTool** dessus. Tu obtiens alors la correction **en direct pendant la frappe** dans Gmail, les formulaires web, etc. (voir la section « Bonus » du README du serveur).
 
 ## Limites connues
@@ -209,10 +222,12 @@ src/                 Interface (HTML/CSS/JS sans framework) ; bubble.* = fenêtr
 src-tauri/src/
   main.rs            Fenêtre, icône système, raccourci global, commandes
   langtool.rs        Client de l'API LanguageTool (/v2/check)
+  grammalecte.rs     Client du serveur Grammalecte (/gc_text/fr)
+  engines.rs         Interroge les deux moteurs en parallèle et fusionne leurs remarques
   selection.rs       Capture et remplacement de la sélection, par OS
   bubble.rs          Bulle en direct (Windows, UI Automation)
   config.rs          Paramètres (JSON)
-server/              docker-compose LanguageTool + n-grammes FR
+server/              docker-compose LanguageTool + Grammalecte, n-grammes FR
 packaging/arch/      PKGBUILD + fichier .desktop
 tests/ui/            Tests de l'interface (Playwright, backend simulé)
 ```

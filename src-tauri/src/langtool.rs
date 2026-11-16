@@ -100,6 +100,8 @@ pub struct Issue {
     /// Identifiant stable attribué par la bulle (0 ailleurs) : permet de viser la bonne faute
     /// même si les positions ont été décalées par une correction précédente.
     pub key: u64,
+    /// Moteur qui a détecté la faute : "languagetool" ou "grammalecte".
+    pub source: String,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -107,6 +109,8 @@ pub struct CheckResult {
     pub issues: Vec<Issue>,
     pub language: String,
     pub language_code: String,
+    /// Avertissements non bloquants (ex. : un des deux moteurs injoignable).
+    pub warnings: Vec<String>,
 }
 
 fn classify(issue_type: &str, category_id: &str) -> &'static str {
@@ -164,6 +168,7 @@ fn convert(text: &str, resp: LtResponse, cfg: &Config) -> CheckResult {
                 category: cat_name,
                 kind,
                 key: 0,
+                source: "languagetool".into(),
             })
         })
         .collect();
@@ -175,7 +180,7 @@ fn convert(text: &str, resp: LtResponse, cfg: &Config) -> CheckResult {
         },
         None => (String::new(), String::new()),
     };
-    CheckResult { issues, language, language_code }
+    CheckResult { issues, language, language_code, warnings: Vec::new() }
 }
 
 pub async fn check(
@@ -185,7 +190,7 @@ pub async fn check(
     language: &str,
 ) -> Result<CheckResult, String> {
     if text.trim().is_empty() {
-        return Ok(CheckResult { issues: vec![], language: String::new(), language_code: String::new() });
+        return Ok(CheckResult { issues: vec![], language: String::new(), language_code: String::new(), warnings: vec![] });
     }
     let lang = if language.trim().is_empty() { cfg.language.as_str() } else { language.trim() };
     let mut form: Vec<(&str, String)> = vec![
@@ -196,8 +201,15 @@ pub async fn check(
     if lang == "auto" {
         form.push(("preferredVariants", "fr,en-US,de-DE,pt-PT,ca-ES".into()));
     }
-    if !cfg.disabled_rules.is_empty() {
-        form.push(("disabledRules", cfg.disabled_rules.join(",")));
+    // Les règles Grammalecte désactivées sont filtrées côté Coquille, pas envoyées à LanguageTool.
+    let lt_rules: Vec<&str> = cfg
+        .disabled_rules
+        .iter()
+        .map(String::as_str)
+        .filter(|r| !r.starts_with(crate::grammalecte::RULE_PREFIX))
+        .collect();
+    if !lt_rules.is_empty() {
+        form.push(("disabledRules", lt_rules.join(",")));
     }
     if !cfg.username.is_empty() && !cfg.api_key.is_empty() {
         form.push(("username", cfg.username.clone()));

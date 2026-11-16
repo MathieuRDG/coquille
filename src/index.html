@@ -71,6 +71,20 @@
       </fieldset>
 
       <fieldset>
+        <legend>Second moteur : Grammalecte (facultatif)</legend>
+        <div class="row">
+          <input name="grammalecte_url" type="text" placeholder="http://100.x.y.z:8011 — laisser vide pour désactiver" spellcheck="false">
+          <button type="button" id="btn-test-gl">Tester</button>
+        </div>
+        <p id="test-gl-result" class="small"></p>
+        <p class="small muted">
+          Correcteur libre spécialisé dans le français : accords, conjugaison, participes passés, subjonctif, confusions.
+          Ses remarques s'ajoutent à celles de LanguageTool, sans doublons. Il n'existe pas de serveur public :
+          héberge-le avec le <code>docker-compose.yml</code> du dossier <code>server/</code>.
+        </p>
+      </fieldset>
+
+      <fieldset>
         <legend>Raccourci global</legend>
         <div id="shortcut-native">
           <button type="button" id="shortcut-rec" class="shortcut-rec">

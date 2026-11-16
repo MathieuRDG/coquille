@@ -37,6 +37,16 @@ curl -s -d "language=fr&text=Bonjoru les amis est là" http://localhost:8010/v2/
 
 Le premier démarrage prend environ 30 secondes.
 
+### Grammalecte (second moteur, facultatif)
+
+Le même `docker compose up -d` construit et démarre aussi **Grammalecte** (licence GPL 3, téléchargé à la construction et non inclus dans Coquille), sur le port **8011**. La première construction télécharge le paquet officiel depuis grammalecte.net et vérifie son empreinte SHA-256. Ressources mesurées : environ 220 Mo de RAM, une image de 100 Mo, quelques dixièmes de seconde par analyse. Pour vérifier qu'il répond :
+
+```bash
+curl -s --data-urlencode "text=Il faut que tu viens." http://localhost:8011/gc_text/fr
+```
+
+Dans Coquille, va dans ⚙ › Second moteur : Grammalecte, saisis `http://<ip-du-lxc>:8011`, puis clique sur **Tester**. Si tu n'en veux pas, supprime le service `grammalecte` du `docker-compose.yml`, ou lance seulement `docker compose up -d languagetool`.
+
 ## 3. N-grammes français (facultatif, recommandé)
 
 Les n-grammes permettent de repérer les confusions de mots (a/à, ses/ces, quand/quant…). Le téléchargement pèse plusieurs Go :
@@ -49,7 +59,7 @@ docker compose up -d
 
 ## 4. Accès depuis tes PC via Tailscale
 
-Installe Tailscale dans le LXC (ou expose le port depuis l'hôte), puis choisis une des deux options.
+Installe Tailscale dans le LXC (ou expose le port depuis l'hôte), puis choisis une des deux options. Le principe est le même pour Grammalecte, sur le port 8011.
 
 **Option simple (HTTP sur le tailnet)** : dans Coquille, indique `http://<ip-tailscale-du-lxc>:8010`, ou le nom MagicDNS du conteneur.
 

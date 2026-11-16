@@ -1,5 +1,8 @@
-# Serveur LanguageTool auto-hébergé pour Coquille (et l'extension navigateur LanguageTool).
-# Image communautaire maintenue : https://github.com/Erikvl87/docker-languagetool
+# Serveurs de correction auto-hébergés pour Coquille :
+#  - LanguageTool (moteur principal, aussi utilisable par l'extension navigateur LanguageTool) ;
+#  - Grammalecte (second moteur facultatif, spécialisé dans le français).
+# LanguageTool : image communautaire maintenue, https://github.com/Erikvl87/docker-languagetool
+# Grammalecte : construit localement depuis server/grammalecte/Dockerfile (paquet officiel épinglé)
 #
 #   docker compose up -d
 #   curl -s -d "language=fr&text=Bonjoru les amis" http://localhost:8010/v2/check
@@ -20,3 +23,13 @@ services:
       # - langtool_languageModel=/ngrams
     volumes:
       - ./ngrams:/ngrams:ro
+
+  # Second moteur (facultatif) : dans Coquille, ⚙ › Grammalecte › http://<ip>:8011
+  grammalecte:
+    build: ./grammalecte
+    image: coquille-grammalecte:2.3.0
+    container_name: grammalecte
+    restart: unless-stopped
+    ports:
+      # Remplace par "IP_TAILSCALE:8011:8080" pour n'écouter que sur ton tailnet.
+      - "8011:8080"

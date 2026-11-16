@@ -578,7 +578,7 @@ mod imp {
             let Some(text) = self.field.as_ref().map(|f| f.text.clone()) else { return };
             self.last_request = Some(Instant::now());
             let http = self.app.state::<AppState>().http.clone();
-            let result = tauri::async_runtime::block_on(langtool::check(&http, cfg, &text, ""));
+            let result = tauri::async_runtime::block_on(crate::engines::check_all(&http, cfg, &text, ""));
             let ignored = &self.ignored;
             let next_key = &mut self.next_key;
             let Some(f) = self.field.as_mut() else { return };
@@ -898,6 +898,7 @@ mod tests {
             category: String::new(),
             kind: "orthographe".into(),
             key,
+            source: "languagetool".into(),
         }
     }
 
