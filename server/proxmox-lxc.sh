@@ -10,6 +10,7 @@
 #   STORAGE (local-lvm ou local-zfs, sinon le premier stockage de conteneurs actif)
 #   TEMPLATE_STORAGE (premier stockage de modèles actif, souvent « local »)
 #   BRIDGE (vmbr0)   IP (dhcp, ou par exemple « 192.168.1.50/24,gw=192.168.1.1 »)
+#   DEBIAN (13 sur Proxmox VE 9, 12 sur Proxmox VE 8 : PVE 8 ne sait pas démarrer Debian 13)
 # Exemple : CTID=150 IP=192.168.1.50/24,gw=192.168.1.1 bash -c "$(curl -fsSL …/proxmox-lxc.sh)"
 set -euo pipefail
 
@@ -52,8 +53,12 @@ if pct status "$CTID" >/dev/null 2>&1; then die "le conteneur $CTID existe déj�
 
 say "Modèle Debian"
 pveam update >/dev/null || true
+pve_major="$(pveversion 2>/dev/null | sed -n 's#^pve-manager/\([0-9]*\)\..*#\1#p')"
+if [ -z "${DEBIAN:-}" ]; then
+  if [ "${pve_major:-0}" -ge 9 ]; then DEBIAN=13; else DEBIAN=12; fi
+fi
 template=""
-for version in 13 12; do
+for version in "$DEBIAN" 12; do
   template="$(pveam available --section system | awk -v p="^debian-$version-standard_" '$2 ~ p {print $2}' | sort -V | tail -n1)"
   [ -n "$template" ] && break
 done
@@ -71,7 +76,12 @@ pct create "$CTID" "$TEMPLATE_STORAGE:vztmpl/$template" \
   --unprivileged 1 --features nesting=1,keyctl=1 \
   --onboot 1 --tags coquille \
   --description "Coquille : LanguageTool (port 8010) + Grammalecte (port 8011). Mise à jour : bash /root/coquille-install.sh"
-pct start "$CTID"
+if ! pct start "$CTID"; then
+  printf '\n' >&2
+  die "le conteneur $CTID ne démarre pas. La vraie cause est la première ligne d'erreur de :
+    pct start $CTID --debug 2>&1 | grep -iE 'error|unsupported|denied' | head -n 20
+  Une fois corrigé : pct destroy $CTID, puis relance ce script."
+fi
 
 say "Attente du réseau dans le conteneur"
 for _ in $(seq 1 30); do
