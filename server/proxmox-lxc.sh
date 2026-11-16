@@ -57,12 +57,16 @@ pve_major="$(pveversion 2>/dev/null | sed -n 's#^pve-manager/\([0-9]*\)\..*#\1#p
 if [ -z "${DEBIAN:-}" ]; then
   if [ "${pve_major:-0}" -ge 9 ]; then DEBIAN=13; else DEBIAN=12; fi
 fi
+# Architecture du nœud : l'index des modèles peut aussi proposer de l'arm64, qui ne démarre pas
+# sur un nœud x86 (« Exec format error » sur /sbin/init).
+arch="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
 template=""
 for version in "$DEBIAN" 12; do
-  template="$(pveam available --section system | awk -v p="^debian-$version-standard_" '$2 ~ p {print $2}' | sort -V | tail -n1)"
+  template="$(pveam available --section system \
+    | awk -v p="^debian-$version-standard_.*_${arch}[.]tar[.]" '$2 ~ p {print $2}' | sort -V | tail -n1)"
   [ -n "$template" ] && break
 done
-[ -n "$template" ] || die "aucun modèle Debian 12/13 dans « pveam available »."
+[ -n "$template" ] || die "aucun modèle Debian 12/13 pour l'architecture $arch dans « pveam available »."
 if ! pveam list "$TEMPLATE_STORAGE" | grep -F "$template" >/dev/null; then
   pveam download "$TEMPLATE_STORAGE" "$template"
 fi
@@ -73,7 +77,7 @@ pct create "$CTID" "$TEMPLATE_STORAGE:vztmpl/$template" \
   --cores "$CORES" --memory "$MEMORY" --swap 512 \
   --rootfs "$STORAGE:$DISK" \
   --net0 "name=eth0,bridge=$BRIDGE,ip=$IP" \
-  --unprivileged 1 --features nesting=1,keyctl=1 \
+  --arch "$arch" --unprivileged 1 --features nesting=1,keyctl=1 \
   --onboot 1 --tags coquille \
   --description "Coquille : LanguageTool (port 8010) + Grammalecte (port 8011). Mise à jour : bash /root/coquille-install.sh"
 if ! pct start "$CTID"; then
