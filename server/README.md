@@ -4,23 +4,84 @@ Sans serveur, Coquille utilise le serveur public `https://api.languagetool.org`.
 
 ## Installation express
 
-**Sur un nœud Proxmox** (shell du nœud, en root), une commande crée un conteneur LXC Debian non privilégié et y installe LanguageTool (port 8010) et Grammalecte (port 8011) :
+### Sur Proxmox (recommandé)
+
+Dans le shell d'un nœud (Datacenter › nœud › **Shell**, en root) :
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/MathieuRDG/coquille/main/server/proxmox-lxc.sh)"
 ```
 
-Le script choisit le prochain CTID libre, le stockage `local-lvm` ou `local-zfs` (sinon le premier stockage de conteneurs actif), le pont `vmbr0` et le DHCP. Pour changer ces valeurs, préfixe la commande, par exemple `CTID=150 STORAGE=ceph-vm IP=192.168.1.50/24,gw=192.168.1.1 bash -c "$(curl …)"` (liste complète en tête de [proxmox-lxc.sh](proxmox-lxc.sh)). À la fin, il affiche les deux adresses à saisir dans Coquille.
+Le script [proxmox-lxc.sh](proxmox-lxc.sh) :
 
-**Dans un conteneur ou une VM Debian/Ubuntu existants** (en root) :
+1. télécharge le modèle Debian adapté au nœud : **Debian 13 sur Proxmox VE 9, Debian 12 sur Proxmox VE 8** (PVE 8 ne sait pas démarrer Debian 13), toujours dans l'**architecture du nœud** (amd64 sur un PC x86) ;
+2. crée un conteneur **non privilégié** : 2 vCPU, 3 Go de RAM, 512 Mo de swap, 12 Go de disque, options `nesting` et `keyctl` (nécessaires à Docker), démarrage avec le nœud, tag `coquille` ;
+3. attend le réseau, puis lance [install.sh](install.sh) dans le conteneur : Docker, LanguageTool (port **8010**), Grammalecte (port **8011**) ;
+4. vérifie que les deux serveurs répondent et affiche les adresses à saisir dans Coquille.
+
+Compte quelques minutes, surtout pour télécharger LanguageTool. Testé sur Proxmox VE 9.2 (nœud x86).
+
+Valeurs par défaut : prochain CTID libre, stockage `local-lvm` ou `local-zfs` (sinon le premier stockage de conteneurs actif), pont `vmbr0`, DHCP. Pour les changer, préfixe la commande :
+
+```bash
+CTID=150 STORAGE=ceph-vm IP=192.168.1.50/24,gw=192.168.1.1 bash -c "$(curl -fsSL https://raw.githubusercontent.com/MathieuRDG/coquille/main/server/proxmox-lxc.sh)"
+```
+
+| Variable | Défaut | Rôle |
+|----------|--------|------|
+| `CTID` | prochain libre | Numéro du conteneur |
+| `CT_HOSTNAME` | `coquille` | Nom d'hôte |
+| `CORES` / `MEMORY` / `DISK` | `2` / `3072` (Mo) / `12` (Go) | Ressources |
+| `STORAGE` | `local-lvm` ou `local-zfs` | Stockage du disque du conteneur (un stockage partagé comme Ceph permet la haute disponibilité) |
+| `TEMPLATE_STORAGE` | premier stockage de modèles actif | Où télécharger le modèle Debian |
+| `BRIDGE` | `vmbr0` | Pont réseau |
+| `IP` | `dhcp` | Ou une IP fixe : `192.168.1.50/24,gw=192.168.1.1` |
+| `DEBIAN` | `13` (PVE 9) ou `12` (PVE 8) | Version de Debian |
+
+### Dans un conteneur ou une VM Debian/Ubuntu existants
+
+En root :
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/MathieuRDG/coquille/main/server/install.sh)"
 ```
 
-Ce script installe Docker si besoin, clone le dépôt dans `/opt/coquille`, démarre les deux serveurs, vérifie qu'ils répondent et affiche les adresses. **Relance-le pour tout mettre à jour.**
+Le script installe Docker si besoin, clone le dépôt dans `/opt/coquille`, démarre les deux serveurs, vérifie qu'ils répondent et affiche les adresses. Il prévient si la machine a moins de 3 Go de RAM.
 
-Ensuite, dans Coquille, va dans ⚙ Réglages : saisis `http://<ip>:8010` dans **Serveur LanguageTool** et `http://<ip>:8011` dans **Second moteur : Grammalecte**, clique sur **Tester** pour chacun, puis sur **Enregistrer**. Réserve l'IP du conteneur dans ton DHCP, ou donne-lui une IP fixe.
+### Dans Coquille
+
+Dans ⚙ Réglages :
+
+1. **Serveur LanguageTool** : `http://<ip>:8010`, puis **Tester** ;
+2. **Second moteur : Grammalecte** : `http://<ip>:8011`, puis **Tester** ;
+3. **Enregistrer**.
+
+Réserve l'IP du conteneur dans ton DHCP, ou passe une IP fixe au script (`IP=…`), car Coquille garde l'adresse en mémoire. Pour un accès hors de chez toi, voir la section 4 (Tailscale).
+
+### Entretien
+
+Depuis le nœud Proxmox (remplace `<CTID>` par le numéro du conteneur) :
+
+| Action | Commande |
+|--------|----------|
+| Mettre à jour (dépôt, LanguageTool, Grammalecte) | `pct exec <CTID> -- /usr/local/sbin/coquille-update` |
+| État des serveurs | `pct exec <CTID> -- docker compose -f /opt/coquille/server/docker-compose.yml ps` |
+| Journaux | `pct exec <CTID> -- docker compose -f /opt/coquille/server/docker-compose.yml logs --tail 50` |
+| Console du conteneur | `pct enter <CTID>` |
+| Tout supprimer | `pct stop <CTID> && pct destroy <CTID>` |
+
+Dans un conteneur installé avant l'ajout de `coquille-update`, lance une fois `pct exec <CTID> -- bash /root/coquille-install.sh` : la commande sera créée au passage.
+
+### Dépannage de l'installation
+
+| Erreur | Cause et solution |
+|--------|-------------------|
+| `Exec format error - Failed to exec "/sbin/init"` au démarrage du conteneur | Le modèle n'est pas de l'architecture du nœud (arm64 sur un nœud x86). Les anciennes versions du script pouvaient le choisir. Supprime le conteneur (`pct destroy <CTID>`) et le modèle (`pveam remove local:vztmpl/…_arm64.tar.zst`), puis relance le script. |
+| `unsupported debian version` | Modèle Debian 13 sur Proxmox VE 8. Le script choisit maintenant Debian 12 sur PVE 8 ; sinon, force-le avec `DEBIAN=12`. |
+| `startup for container '…' failed` (sans autre détail) | La vraie cause est la première ligne `ERROR` de `pct start <CTID> --debug 2>&1 \| grep -iE 'error\|unsupported\|denied'`. |
+| `open sysctl net.ipv4.ip_unprivileged_port_start … permission denied` | Régression runc/containerd dans les LXC Proxmox : voir l'encadré de la section 1. |
+| Docker ne démarre pas dans le conteneur | Options manquantes : `pct set <CTID> --features nesting=1,keyctl=1`, puis redémarre le conteneur. |
+| Coquille affiche « Serveur injoignable » | Vérifie l'IP du conteneur (`pct exec <CTID> -- hostname -I`), puis l'état des serveurs (tableau ci-dessus). |
 
 Les sections suivantes détaillent l'installation manuelle.
 
@@ -73,7 +134,7 @@ Dans Coquille, va dans ⚙ › Second moteur : Grammalecte, saisis `http://<ip-d
 
 ## 3. N-grammes français (facultatif, recommandé)
 
-Les n-grammes permettent de repérer les confusions de mots (a/à, ses/ces, quand/quant…). Le téléchargement pèse plusieurs Go :
+Les n-grammes permettent de repérer les confusions de mots (a/à, ses/ces, quand/quant…). Le téléchargement pèse plusieurs Go. Avec l'installation express, agrandis d'abord le disque et la mémoire depuis le nœud (`pct resize <CTID> rootfs +15G` et `pct set <CTID> --memory 4096`), puis travaille dans `/opt/coquille/server` :
 
 ```bash
 ./get-ngrams-fr.sh

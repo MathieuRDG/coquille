@@ -47,7 +47,11 @@ if ! docker info >/dev/null 2>&1; then
 fi
 
 # Dossier server/ : celui du dépôt qui contient ce script, sinon un clone dans $DIR.
-here="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"
+# (« bash -c "$(curl …)" » n'a pas de fichier source : on passe directement au clone.)
+here=""
+if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
 if [ -n "$here" ] && [ -f "$here/docker-compose.yml" ] && [ -f "$here/grammalecte/Dockerfile" ]; then
   server="$here"
   say "Dépôt local : $server"
@@ -61,6 +65,20 @@ else
   server="$DIR/server"
 fi
 cd "$server"
+
+# Commande de mise à jour pour l'installation standard : elle récupère le dépôt AVANT de lancer
+# ce script, pour ne jamais modifier un script en cours d'exécution.
+updater=""
+if [ "$server" = "$DIR/server" ]; then
+  updater=/usr/local/sbin/coquille-update
+  cat > "$updater" <<EOF
+#!/bin/sh
+# Met à jour Coquille : dépôt, image LanguageTool et image Grammalecte (server/install.sh).
+git -C '$DIR' pull --ff-only -q || echo "Mise à jour du dépôt impossible (modifications locales ?) : version actuelle conservée." >&2
+COQUILLE_DIR='$DIR' exec bash '$DIR/server/install.sh' "\$@"
+EOF
+  chmod 755 "$updater"
+fi
 mapfile -t services < <(docker compose config --services)
 has_service() { local s; for s in "${services[@]}"; do [ "$s" = "$1" ] && return 0; done; return 1; }
 
@@ -126,5 +144,5 @@ cat <<EOF
 
 - Fixe l'IP de cette machine (bail DHCP réservé ou IP statique) : Coquille garde l'adresse en mémoire.
 - Aucune authentification : n'expose pas ces ports sur Internet (Tailscale oui, tunnel public non).
-- Mise à jour : relance ce script. Journaux : docker compose -f $server/docker-compose.yml logs -f
+- Mise à jour : ${updater:-relance ce script}. Journaux : docker compose -f $server/docker-compose.yml logs -f
 EOF

@@ -8,7 +8,7 @@
 - **Éditeur intégré** avec vérification pendant la frappe, fautes soulignées par type (orthographe, grammaire, typographie, style).
 - **Bulle de correction en direct** sous Windows : une pastille à côté du champ où tu écris, sans ouvrir l'application.
 - Suggestions en un clic, **Tout corriger**, annulation avec Ctrl+Z, dictionnaire personnel, règles désactivables.
-- Moteur **[LanguageTool](https://languagetool.org)** : le serveur public, ou **ton propre serveur** (Docker, par exemple sur un Proxmox accessible via Tailscale).
+- Moteur **[LanguageTool](https://languagetool.org)** : le serveur public, ou **ton propre serveur**, installé **en une commande sur Proxmox** (ou sur toute machine Debian/Ubuntu) et accessible via Tailscale.
 - Second moteur facultatif, **[Grammalecte](https://grammalecte.net)**, spécialisé dans le français : il complète LanguageTool sur les accords, la conjugaison, les participes passés et le subjonctif.
 - Binaire léger (≈ 6 Mo sous Linux) grâce à [Tauri](https://tauri.app) (Rust + WebView du système).
 
@@ -38,12 +38,13 @@ Conséquences :
 ## Fonctionnement
 
 ```
- Application quelconque          Coquille (barre système)            LanguageTool
+ Application quelconque          Coquille (barre système)            Serveurs de correction
  ┌──────────────────────┐  raccourci  ┌──────────────────────┐  HTTP  ┌──────────────────┐
- │ texte sélectionné    │ ──────────▶ │ capture la sélection │ ─────▶ │ /v2/check        │
- │                      │             │ affiche les fautes   │ ◀───── │ (public ou ton   │
- │ texte corrigé ◀──────┼─ Ctrl+Entrée│ recolle le résultat  │        │  serveur Docker) │
- └──────────────────────┘             └──────────────────────┘        └──────────────────┘
+ │ texte sélectionné    │ ──────────▶ │ capture la sélection │ ─────▶ │ LanguageTool     │
+ │                      │             │ affiche les fautes   │ ◀───── │ (public ou perso)│
+ │ texte corrigé ◀──────┼─ Ctrl+Entrée│ recolle le résultat  │        │ + Grammalecte    │
+ └──────────────────────┘             └──────────────────────┘        │   (facultatif)   │
+                                                                      └──────────────────┘
 ```
 
 | Système | Lecture de la sélection | Remplacement |
@@ -121,7 +122,7 @@ Les corrections s'appuient sur l'analyse de la phrase d'origine, gardée en mém
 - Elle ignore les **champs de mot de passe**, les barres d'adresse et les applications exclues (gestionnaires de mots de passe, terminaux, VS Code… ; liste modifiable dans ⚙).
 - Elle se désactive dans ⚙ › Bulle de correction en direct.
 - Elle s'appuie sur l'API d'accessibilité de Windows (UI Automation). Quelques applications n'exposent pas leur texte ; dans ce cas, utilise le raccourci.
-- Le texte des champs est envoyé au serveur LanguageTool configuré. Le serveur public limite le nombre de requêtes et ralentit donc la bulle : ton propre serveur est préférable.
+- Le texte des champs est envoyé aux serveurs configurés (LanguageTool, et Grammalecte s'il est activé). Le serveur public limite le nombre de requêtes : la bulle attend alors au moins 3,2 s entre deux vérifications, contre 0,4 s avec ton propre serveur.
 
 Linux et macOS : prévu plus tard. Sous Wayland, une application ne peut pas placer une fenêtre où elle veut, ce qui complique la chose.
 
@@ -144,15 +145,29 @@ windowrulev2 = center, class:^(coquille)$
 
 Autres options de ligne de commande : `--cache` (démarrer en arrière-plan) et `--parametres` (ouvrir les réglages).
 
-## Serveur LanguageTool
+## Serveurs de correction
 
-Par défaut, Coquille utilise `https://api.languagetool.org`, gratuit mais limité en requêtes par minute et en taille de texte. Pour un usage quotidien, héberge ton serveur. Sur Proxmox, une commande dans le shell d'un nœud crée le conteneur et installe LanguageTool et Grammalecte :
+Par défaut, Coquille utilise le serveur public `https://api.languagetool.org`. Il est gratuit, mais limité (environ 20 requêtes par minute et 20 Ko par texte), et tes textes partent chez un tiers. Pour un usage quotidien, héberge tes propres serveurs : plus de limite, une bulle plus réactive, tes textes restent chez toi, et tu peux ajouter Grammalecte (voir plus bas).
+
+### Installation sur Proxmox (une commande)
+
+Dans le shell d'un nœud Proxmox (Datacenter › nœud › **Shell**, en root) :
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/MathieuRDG/coquille/main/server/proxmox-lxc.sh)"
 ```
 
-Ailleurs (VM ou conteneur Debian/Ubuntu), utilise `server/install.sh`, ou lance `docker compose up -d` dans `server/`. Tous les détails, y compris Tailscale, sont dans **[server/README.md](server/README.md)**. Saisis ensuite son adresse dans ⚙ › Serveur LanguageTool, puis clique sur **Tester**.
+Le script crée un conteneur LXC Debian non privilégié (2 vCPU, 3 Go de RAM, 12 Go de disque, démarrage avec le nœud). Il y installe Docker, **LanguageTool** (port 8010) et **Grammalecte** (port 8011), vérifie qu'ils répondent, puis affiche les adresses à saisir dans Coquille. Il choisit seul le modèle Debian adapté à ta version de Proxmox et à l'architecture du nœud. Testé sur Proxmox VE 9.2.
+
+Ensuite, dans Coquille, va dans ⚙ Réglages : saisis `http://<ip>:8010` dans **Serveur LanguageTool** et `http://<ip>:8011` dans **Second moteur : Grammalecte**, clique sur **Tester** pour chacun, puis sur **Enregistrer**. Réserve l'IP du conteneur dans ton DHCP.
+
+Pour mettre à jour les serveurs, depuis le nœud :
+
+```bash
+pct exec <CTID> -- /usr/local/sbin/coquille-update
+```
+
+Hors Proxmox (VM ou conteneur Debian/Ubuntu), lance [server/install.sh](server/install.sh) de la même façon, ou `docker compose up -d` dans `server/`. Le **[README du serveur](server/README.md)** détaille les options (CTID, stockage, IP fixe…), l'entretien, le dépannage, l'accès via Tailscale et les n-grammes.
 
 ### Grammalecte, second moteur (facultatif)
 
@@ -162,7 +177,7 @@ Pour aller plus loin sur la conjugaison et les accords, ajoute **Grammalecte**, 
 - « la voiture que j'ai acheté » → « achetée » (participe passé et complément placé avant) ;
 - « je t'ai renvoyer » → « renvoyé ».
 
-Coquille interroge les deux moteurs en même temps et fusionne leurs remarques sans doublons ; celles de Grammalecte portent la mention « Grammalecte ». Il n'existe pas de serveur Grammalecte public : le `docker-compose.yml` du dossier `server/` le construit à partir du paquet officiel (environ 220 Mo de RAM). Indique ensuite son adresse dans ⚙ › Second moteur : Grammalecte, puis clique sur **Tester**. Si le serveur ne répond pas, Coquille continue avec LanguageTool seul et le signale.
+Coquille interroge les deux moteurs en même temps et fusionne leurs remarques sans doublons ; celles de Grammalecte portent la mention « Grammalecte ». Il n'existe pas de serveur Grammalecte public : l'installation ci-dessus le construit à partir du paquet officiel (environ 220 Mo de RAM). Indique ensuite son adresse dans ⚙ › Second moteur : Grammalecte, puis clique sur **Tester**. Si le serveur ne répond pas, Coquille continue avec LanguageTool seul et le signale.
 
 ### Extension navigateur
 
@@ -175,6 +190,7 @@ Avec ton serveur, tu peux aussi brancher l'**extension navigateur officielle Lan
 - **Terminaux** : ils collent avec Ctrl+Maj+V, donc le remplacement automatique n'y fonctionne pas. Utilise **Copier**.
 - **Presse-papiers** : seul son contenu *texte* est restauré après un remplacement. Une image copiée juste avant serait perdue.
 - **macOS** : les paquets sont compilés automatiquement, mais n'ont pas encore été testés sur une vraie machine. Linux (X11 et Wayland) et Windows sont testés et utilisés au quotidien.
+- **Serveurs** : l'installation en une commande est testée sur Proxmox VE 9.2 avec un nœud x86. `install.sh` vise Debian et Ubuntu ; ailleurs, utilise `docker compose` directement.
 - Un problème, une idée ? Ouvre une [issue](https://github.com/MathieuRDG/coquille/issues).
 
 ## Dépannage
@@ -185,7 +201,9 @@ Avec ton serveur, tu peux aussi brancher l'**extension navigateur officielle Lan
 | « … est déjà réservé par une autre application » | Un autre logiciel l'utilise déjà (lanceur, PowerToys, logiciel de clavier ou de capture…). Choisis-en un autre dans ⚙ › Raccourci global. |
 | La bulle n'apparaît pas | Vérifie qu'elle est activée dans ⚙, que le champ contient au moins 3 mots et que l'application n'est pas exclue. Les applications lancées en administrateur ne sont pas accessibles depuis une application normale. |
 | « Aucun texte sélectionné » (Wayland) | Vérifie que `wl-paste --primary` affiche bien ta sélection dans un terminal. |
-| « Serveur injoignable » | Teste l'adresse dans ⚙, puis vérifie Tailscale et `docker compose ps` sur le serveur. |
+| « Serveur injoignable » | Teste l'adresse dans ⚙. Sur Proxmox, vérifie les serveurs avec `pct exec <CTID> -- docker compose -f /opt/coquille/server/docker-compose.yml ps`, et Tailscale si tu es hors de chez toi. |
+| Le script Proxmox échoue | Voir « Dépannage de l'installation » dans le [README du serveur](server/README.md). |
+| « Grammalecte injoignable (…) : texte vérifié par LanguageTool seul » | Le serveur Grammalecte ne répond pas : vérifie son état comme ci-dessus. Coquille continue avec LanguageTool en attendant. |
 | Code 429 | Le serveur public te limite : passe sur ton propre serveur. |
 | Pas d'icône dans la barre (GNOME) | Installe l'extension *AppIndicator and KStatusNotifierItem Support*, ou relance `coquille` pour rouvrir la fenêtre. |
 

@@ -79,7 +79,7 @@ pct create "$CTID" "$TEMPLATE_STORAGE:vztmpl/$template" \
   --net0 "name=eth0,bridge=$BRIDGE,ip=$IP" \
   --arch "$arch" --unprivileged 1 --features nesting=1,keyctl=1 \
   --onboot 1 --tags coquille \
-  --description "Coquille : LanguageTool (port 8010) + Grammalecte (port 8011). Mise à jour : bash /root/coquille-install.sh"
+  --description "Coquille : LanguageTool (port 8010) + Grammalecte (port 8011). Mise à jour : pct exec <CTID> -- /usr/local/sbin/coquille-update"
 if ! pct start "$CTID"; then
   printf '\n' >&2
   die "le conteneur $CTID ne démarre pas. La vraie cause est la première ligne d'erreur de :
@@ -102,4 +102,4 @@ pct exec "$CTID" -- bash -c "export DEBIAN_FRONTEND=noninteractive \
   && bash /root/coquille-install.sh" </dev/null
 
 echo
-say "Conteneur $CTID prêt. Console : pct enter $CTID — mise à jour : pct exec $CTID -- bash /root/coquille-install.sh"
+say "Conteneur $CTID prêt. Console : pct enter $CTID — mise à jour : pct exec $CTID -- /usr/local/sbin/coquille-update"
