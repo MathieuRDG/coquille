@@ -1,18 +1,40 @@
-# Serveur LanguageTool auto-hébergé (Proxmox + Tailscale)
+# Serveurs de correction auto-hébergés (Proxmox + Tailscale)
 
-Le serveur public `https://api.languagetool.org` suffit pour tester, mais il limite le nombre de requêtes par minute et la taille des textes, et tes textes partent chez un tiers. Ton propre serveur supprime ces limites, garde tes textes chez toi et sert aussi l'extension navigateur LanguageTool.
+Sans serveur, Coquille utilise le serveur public `https://api.languagetool.org`. Il suffit pour tester, mais il est limité (environ 20 requêtes par minute, d'où une bulle moins réactive), et tes textes partent chez un tiers. Ton propre serveur supprime ces limites, garde tes textes chez toi, ajoute **Grammalecte** (qui n'a pas de serveur public) et sert aussi l'extension navigateur LanguageTool.
+
+## Installation express
+
+**Sur un nœud Proxmox** (shell du nœud, en root), une commande crée un conteneur LXC Debian non privilégié et y installe LanguageTool (port 8010) et Grammalecte (port 8011) :
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/MathieuRDG/coquille/main/server/proxmox-lxc.sh)"
+```
+
+Le script choisit le prochain CTID libre, le stockage `local-lvm` ou `local-zfs` (sinon le premier stockage de conteneurs actif), le pont `vmbr0` et le DHCP. Pour changer ces valeurs, préfixe la commande, par exemple `CTID=150 STORAGE=ceph-vm IP=192.168.1.50/24,gw=192.168.1.1 bash -c "$(curl …)"` (liste complète en tête de [proxmox-lxc.sh](proxmox-lxc.sh)). À la fin, il affiche les deux adresses à saisir dans Coquille.
+
+**Dans un conteneur ou une VM Debian/Ubuntu existants** (en root) :
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/MathieuRDG/coquille/main/server/install.sh)"
+```
+
+Ce script installe Docker si besoin, clone le dépôt dans `/opt/coquille`, démarre les deux serveurs, vérifie qu'ils répondent et affiche les adresses. **Relance-le pour tout mettre à jour.**
+
+Ensuite, dans Coquille, va dans ⚙ Réglages : saisis `http://<ip>:8010` dans **Serveur LanguageTool** et `http://<ip>:8011` dans **Second moteur : Grammalecte**, clique sur **Tester** pour chacun, puis sur **Enregistrer**. Réserve l'IP du conteneur dans ton DHCP, ou donne-lui une IP fixe.
+
+Les sections suivantes détaillent l'installation manuelle.
 
 ## 1. Conteneur LXC sur Proxmox
 
-Les valeurs suivantes conviennent pour un usage personnel :
+Les valeurs suivantes conviennent pour un usage personnel. LanguageTool est réglé pour utiliser jusqu'à 2 Go de mémoire Java, et Grammalecte prend environ 220 Mo :
 
 | Ressource | Sans n-grammes | Avec n-grammes FR |
 |-----------|----------------|-------------------|
 | vCPU      | 2              | 2                 |
-| RAM       | 2 Go           | 3 Go              |
-| Disque    | 8 Go           | 20 Go             |
+| RAM       | 3 Go           | 4 Go              |
+| Disque    | 12 Go          | 25 Go             |
 
-Utilise un modèle Debian 12. Docker dans un LXC nécessite l'option **nesting** :
+Utilise un modèle Debian 12 ou 13, en conteneur non privilégié. Docker dans un LXC nécessite les options **nesting** et **keyctl** :
 
 ```bash
 pct set <CTID> --features nesting=1,keyctl=1
@@ -21,13 +43,15 @@ pct set <CTID> --features nesting=1,keyctl=1
 Dans le conteneur :
 
 ```bash
-apt update && apt install -y curl unzip
+apt update && apt install -y curl git unzip
 curl -fsSL https://get.docker.com | sh
 ```
 
+> Si Docker refuse de démarrer les conteneurs avec l'erreur `open sysctl net.ipv4.ip_unprivileged_port_start file: … permission denied`, c'est une régression connue de runc/containerd dans les LXC Proxmox, apparue fin 2025. Mets à jour le nœud Proxmox, puis redémarre le conteneur. Si l'erreur persiste, consulte le [fil du forum Proxmox](https://forum.proxmox.com/threads/docker-inside-lxc-net-ipv4-ip_unprivileged_port_start-error.175437/).
+
 ## 2. Lancement
 
-Copie le dossier `server/` dans le conteneur, puis :
+Clone le dépôt (`git clone https://github.com/MathieuRDG/coquille /opt/coquille`) ou copie le dossier `server/` dans le conteneur, puis :
 
 ```bash
 cd server
@@ -59,7 +83,19 @@ docker compose up -d
 
 ## 4. Accès depuis tes PC via Tailscale
 
-Installe Tailscale dans le LXC (ou expose le port depuis l'hôte), puis choisis une des deux options. Le principe est le même pour Grammalecte, sur le port 8011.
+Sur ton réseau local, l'IP locale du conteneur suffit. Pour y accéder hors de chez toi, deux cas :
+
+- **Tailscale tourne déjà en *subnet router*** et annonce ton réseau local : l'IP locale du conteneur fonctionne telle quelle à travers Tailscale, il n'y a rien à faire.
+- **Sinon, installe Tailscale dans le conteneur.** Un LXC non privilégié a besoin du périphérique TUN. Ajoute ces deux lignes à `/etc/pve/lxc/<CTID>.conf` sur le nœud, puis redémarre le conteneur :
+
+  ```
+  lxc.cgroup2.devices.allow: c 10:200 rwm
+  lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file
+  ```
+
+  Ensuite, dans le conteneur, lance `curl -fsSL https://tailscale.com/install.sh | sh && tailscale up`.
+
+Une fois Tailscale installé dans le conteneur, choisis une des deux options ci-dessous. Le principe est le même pour Grammalecte, sur le port 8011.
 
 **Option simple (HTTP sur le tailnet)** : dans Coquille, indique `http://<ip-tailscale-du-lxc>:8010`, ou le nom MagicDNS du conteneur.
 

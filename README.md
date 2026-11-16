@@ -146,7 +146,13 @@ Autres options de ligne de commande : `--cache` (démarrer en arrière-plan) et 
 
 ## Serveur LanguageTool
 
-Par défaut, Coquille utilise `https://api.languagetool.org`, gratuit mais limité en requêtes par minute et en taille de texte. Pour un usage quotidien, héberge ton serveur : un `docker compose up -d` suffit, et les instructions pour **Proxmox (LXC) + Tailscale** sont dans **[server/README.md](server/README.md)**. Saisis ensuite son adresse dans ⚙ › Serveur LanguageTool, puis clique sur **Tester**.
+Par défaut, Coquille utilise `https://api.languagetool.org`, gratuit mais limité en requêtes par minute et en taille de texte. Pour un usage quotidien, héberge ton serveur. Sur Proxmox, une commande dans le shell d'un nœud crée le conteneur et installe LanguageTool et Grammalecte :
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/MathieuRDG/coquille/main/server/proxmox-lxc.sh)"
+```
+
+Ailleurs (VM ou conteneur Debian/Ubuntu), utilise `server/install.sh`, ou lance `docker compose up -d` dans `server/`. Tous les détails, y compris Tailscale, sont dans **[server/README.md](server/README.md)**. Saisis ensuite son adresse dans ⚙ › Serveur LanguageTool, puis clique sur **Tester**.
 
 ### Grammalecte, second moteur (facultatif)
 
@@ -227,7 +233,7 @@ src-tauri/src/
   selection.rs       Capture et remplacement de la sélection, par OS
   bubble.rs          Bulle en direct (Windows, UI Automation)
   config.rs          Paramètres (JSON)
-server/              docker-compose LanguageTool + Grammalecte, n-grammes FR
+server/              docker-compose LanguageTool + Grammalecte, scripts d'installation (Proxmox/Debian), n-grammes FR
 packaging/arch/      PKGBUILD + fichier .desktop
 tests/ui/            Tests de l'interface (Playwright, backend simulé)
 ```
