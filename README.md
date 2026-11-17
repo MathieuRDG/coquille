@@ -121,6 +121,7 @@ Les corrections s'appuient sur l'analyse de la phrase d'origine, gardée en mém
 - La bulle ne prend jamais le focus : tu continues à taper normalement.
 - Elle ignore les **champs de mot de passe**, les barres d'adresse et les applications exclues (gestionnaires de mots de passe, terminaux, VS Code… ; liste modifiable dans ⚙).
 - Elle se désactive dans ⚙ › Bulle de correction en direct.
+- Elle n'apparaît pas dans un champ ? ⚙ › Bulle de correction en direct › **Diagnostic**, puis clique dans le champ : Coquille affiche ce qu'il voit du champ (application, type de contrôle…) et la raison exacte. **Copier le diagnostic** permet de le joindre à une [issue](https://github.com/MathieuRDG/coquille/issues).
 - Elle s'appuie sur l'API d'accessibilité de Windows (UI Automation). Quelques applications n'exposent pas leur texte ; dans ce cas, utilise le raccourci.
 - Le texte des champs est envoyé aux serveurs configurés (LanguageTool, et Grammalecte s'il est activé). Le serveur public limite le nombre de requêtes : la bulle attend alors au moins 3,2 s entre deux vérifications, contre 0,4 s avec ton propre serveur.
 
@@ -199,7 +200,7 @@ Avec ton serveur, tu peux aussi brancher l'**extension navigateur officielle Lan
 |----------|----------|
 | Fenêtre blanche (Linux, NVIDIA) | Déjà contourné (`WEBKIT_DISABLE_DMABUF_RENDERER=1`). Sinon, essaie `GDK_BACKEND=x11 coquille`. |
 | « … est déjà réservé par une autre application » | Un autre logiciel l'utilise déjà (lanceur, PowerToys, logiciel de clavier ou de capture…). Choisis-en un autre dans ⚙ › Raccourci global. |
-| La bulle n'apparaît pas | Vérifie qu'elle est activée dans ⚙, que le champ contient au moins 3 mots et que l'application n'est pas exclue. Les applications lancées en administrateur ne sont pas accessibles depuis une application normale. |
+| La bulle n'apparaît pas | Lance ⚙ › Bulle de correction en direct › **Diagnostic**, puis clique dans le champ : la raison s'affiche. Causes courantes : moins de 3 mots, application exclue ou lancée en administrateur, Google Docs (active *Outils › Accessibilité › Prise en charge du lecteur d'écran*), navigateur qui n'expose pas la page (`chrome://accessibility` › cocher *Native accessibility API support* et *Web accessibility*). |
 | « Aucun texte sélectionné » (Wayland) | Vérifie que `wl-paste --primary` affiche bien ta sélection dans un terminal. |
 | « Serveur injoignable » | Teste l'adresse dans ⚙. Sur Proxmox, vérifie les serveurs avec `pct exec <CTID> -- docker compose -f /opt/coquille/server/docker-compose.yml ps`, et Tailscale si tu es hors de chez toi. |
 | Le script Proxmox échoue | Voir « Dépannage de l'installation » dans le [README du serveur](server/README.md). |

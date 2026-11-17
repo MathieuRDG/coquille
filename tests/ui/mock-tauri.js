@@ -32,6 +32,7 @@ const handlers = {
   bubble_get_state: () => window.__bubbleState || null, bubble_expand: () => null, bubble_apply: () => null,
   bubble_ignore: () => null, bubble_drop_word: () => null, bubble_drop_rule: () => null, bubble_recheck: () => null, bubble_open_editor: () => null, hide_window: () => null, get_autostart: () => false, set_autostart: () => null,
   apply_text: () => ({ pasted: true, message: null }),
+  bubble_diagnostic: () => window.__probe || null,
   test_grammalecte: ({ url }) => `Connexion réussie à Grammalecte 2.3.0 (${url}).`,
   test_server: ({ url }) => `Connexion réussie à ${url} : 31 langues disponibles, dont le français.`,
 };

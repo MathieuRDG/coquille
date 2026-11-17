@@ -567,8 +567,81 @@ async function changeLanguage() {
 // ---------------------------------------------------------------------------
 const lines = (s) => s.split('\n').map((x) => x.trim()).filter(Boolean);
 
+// ---------------------------------------------------------------------------
+// Diagnostic de la bulle (Windows) : ce que Coquille voit du champ actif
+// ---------------------------------------------------------------------------
+let diagTimer = null;
+
+function diagDetails(p) {
+  const yesNo = (b) => (b ? 'oui' : 'non');
+  const probed = Boolean(p.control);
+  const rows = [
+    ['Application', p.app],
+    ['Type', probed ? `${p.control}${p.localized_control ? ` — ${p.localized_control}` : ''}` : ''],
+    ['Rôle ARIA', p.aria_role],
+    ['Classe', p.class],
+    ['AutomationId', p.automation_id],
+    ['Framework', p.framework],
+    ['Mot de passe', probed ? yesNo(p.password) : ''],
+    ['TextPattern / ValuePattern', probed ? `${yesNo(p.text_pattern)} / ${yesNo(p.value_pattern)}` : ''],
+    ['Lecture seule', !probed ? '' : p.read_only == null ? 'inconnu' : yesNo(p.read_only)],
+    ['Mots', probed && p.words ? String(p.words) : ''],
+    ['Position', p.rect ? p.rect.join(', ') : ''],
+  ];
+  return rows.filter(([, v]) => v).map(([k, v]) => `${k} : ${v}`).join('\n');
+}
+
+function renderDiagnostic(p) {
+  const verdict = $('diag-verdict');
+  if (!p) {
+    verdict.textContent = 'En attente : clique dans un champ d’une autre application.';
+    verdict.className = 'small muted';
+    $('diag-details').textContent = '';
+    return;
+  }
+  verdict.textContent = p.verdict;
+  verdict.className = `small ${p.shown ? 'ok-text' : 'error-text'}`;
+  $('diag-details').textContent = diagDetails(p);
+}
+
+async function pollDiagnostic(reset = false) {
+  try {
+    renderDiagnostic(await invoke('bubble_diagnostic', { reset }));
+  } catch (e) {
+    $('diag-verdict').textContent = String(e);
+    $('diag-verdict').className = 'small error-text';
+  }
+}
+
+function toggleDiagnostic(force) {
+  const box = $('bubble-diag');
+  const on = force ?? box.hidden;
+  box.hidden = !on;
+  $('btn-bubble-diag').setAttribute('aria-expanded', String(on));
+  $('btn-bubble-diag').textContent = on ? 'Arrêter le diagnostic' : 'Diagnostic';
+  clearInterval(diagTimer);
+  diagTimer = null;
+  if (on) {
+    renderDiagnostic(null);
+    pollDiagnostic(true);
+    diagTimer = setInterval(pollDiagnostic, 500);
+  }
+}
+
+async function copyDiagnostic() {
+  const text = [`Coquille ${platform.version} — diagnostic de la bulle`, $('diag-verdict').textContent, $('diag-details').textContent]
+    .filter(Boolean).join('\n');
+  try {
+    await invoke('copy_text', { text });
+    toast('Diagnostic copié');
+  } catch (e) {
+    toast(String(e));
+  }
+}
+
 async function openSettings() {
   hidePopover();
+  toggleDiagnostic(false);
   const f = el.form.elements;
   f.server_url.value = config.server_url;
   f.grammalecte_url.value = config.grammalecte_url || '';
@@ -813,7 +886,9 @@ function bindEvents() {
   document.addEventListener('keydown', onRecordKey, true);
   // Échap pendant l'enregistrement annule la saisie, pas toute la fenêtre de paramètres.
   el.dialog.addEventListener('cancel', (e) => { if (recording) e.preventDefault(); });
-  el.dialog.addEventListener('close', () => { if (recording) stopRecording(); });
+  el.dialog.addEventListener('close', () => { if (recording) stopRecording(); toggleDiagnostic(false); });
+  $('btn-bubble-diag').addEventListener('click', () => toggleDiagnostic());
+  $('btn-diag-copy').addEventListener('click', copyDiagnostic);
 }
 
 async function init() {

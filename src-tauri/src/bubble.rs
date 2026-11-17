@@ -25,6 +25,51 @@ pub struct BubbleState {
     pub app: String,
 }
 
+/// Diagnostic de la bulle (⚙ › Bulle › Diagnostic) : ce que Coquille voit de l'élément actif
+/// d'une autre application, et pourquoi la bulle s'affiche ou non.
+#[derive(Debug, Clone, Serialize, Default, PartialEq)]
+pub struct Probe {
+    pub app: String,
+    pub control: String,
+    pub localized_control: String,
+    pub aria_role: String,
+    pub class: String,
+    pub automation_id: String,
+    pub framework: String,
+    pub password: bool,
+    pub text_pattern: bool,
+    pub value_pattern: bool,
+    pub read_only: Option<bool>,
+    /// Rectangle du champ à l'écran : gauche, haut, droite, bas (pixels physiques).
+    pub rect: Option<[i32; 4]>,
+    pub words: usize,
+    pub shown: bool,
+    pub verdict: String,
+}
+
+/// Nom lisible d'un type de contrôle UI Automation (UIA_*ControlTypeId).
+pub fn control_name(id: i32) -> &'static str {
+    match id {
+        50000 => "Button",
+        50003 => "ComboBox",
+        50004 => "Edit",
+        50005 => "Hyperlink",
+        50007 => "ListItem",
+        50008 => "List",
+        50020 => "Text",
+        50025 => "Custom",
+        50026 => "Group",
+        50030 => "Document",
+        50032 => "Window",
+        50033 => "Pane",
+        _ => "?",
+    }
+}
+
+/// Classe de la fenêtre qui affiche une page web dans les navigateurs Chromium (Chrome, Edge,
+/// Brave…). Si c'est elle qui a le focus, le navigateur n'expose pas le contenu de la page.
+pub const CHROMIUM_PAGE_CLASS: &str = "Chrome_RenderWidgetHostHWND";
+
 /// Ordres envoyés au thread de surveillance par l'interface de la bulle.
 #[derive(Debug)]
 pub enum Command {
@@ -128,7 +173,7 @@ mod imp {
     use std::thread::sleep;
     use std::time::{Duration, Instant};
     use tauri::{AppHandle, Emitter, Manager};
-    use windows::core::BSTR;
+    use windows::core::{BSTR, Result as WinResult};
     use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
     use windows::Win32::UI::Accessibility::{
         CUIAutomation, IUIAutomation, IUIAutomationElement, IUIAutomationTextPattern, IUIAutomationTextRange,
@@ -291,36 +336,78 @@ mod imp {
         }
     }
 
-    /// Renvoie le texte et le rectangle du champ s'il s'agit d'une zone de saisie modifiable.
-    unsafe fn read_editable(el: &IUIAutomationElement, app: &str) -> Option<(String, Rect)> {
+    /// Renvoie le texte et le rectangle du champ s'il s'agit d'une zone de saisie modifiable,
+    /// sinon la raison du refus (affichée par le diagnostic).
+    unsafe fn read_editable(el: &IUIAutomationElement, app: &str) -> Result<(String, Rect), String> {
         unsafe {
             // Jamais de mots de passe.
             if el.CurrentIsPassword().map(|b| b.as_bool()).unwrap_or(true) {
-                return None;
+                return Err("Champ de mot de passe : ignoré volontairement.".into());
             }
             let class = el.CurrentClassName().map(|s| s.to_string()).unwrap_or_default();
             let auto_id = el.CurrentAutomationId().map(|s| s.to_string()).unwrap_or_default();
             if EXCLUDED_CLASSES.contains(&class.as_str()) || EXCLUDED_IDS.contains(&auto_id.as_str()) {
-                return None;
+                return Err("Barre d'adresse du navigateur : ignorée volontairement.".into());
             }
-            let control = el.CurrentControlType().ok()?;
+            if class == CHROMIUM_PAGE_CLASS {
+                return Err("Le navigateur expose la page entière, pas le champ actif. Si tu es bien dans un champ de \
+                            saisie, son accessibilité n'est pas activée : ouvre chrome://accessibility (ou edge://, \
+                            brave://…), coche « Native accessibility API support » et « Web accessibility », puis \
+                            clique de nouveau dans le champ."
+                    .into());
+            }
+            let control = el.CurrentControlType().map_err(|_| "Type de l'élément actif illisible.".to_string())?;
             let read_only = value_pattern(el).and_then(|v| v.CurrentIsReadOnly().ok()).map(|b| b.as_bool());
-            let editable = if control == UIA_EditControlTypeId {
-                read_only != Some(true)
+            if control == UIA_EditControlTypeId {
+                if read_only == Some(true) {
+                    return Err("Champ en lecture seule.".into());
+                }
             } else if control == UIA_DocumentControlTypeId {
-                DOC_EDITORS.iter().any(|d| d.eq_ignore_ascii_case(app)) && read_only != Some(true)
+                if !DOC_EDITORS.iter().any(|d| d.eq_ignore_ascii_case(app)) {
+                    return Err(format!(
+                        "Élément de type « Document » : dans {app}, Coquille le considère comme un document en lecture, pas comme une zone de saisie."
+                    ));
+                }
+                if read_only == Some(true) {
+                    return Err("Document en lecture seule.".into());
+                }
             } else {
-                false
-            };
-            if !editable {
-                return None;
+                return Err(format!(
+                    "L'élément actif est de type « {} » ({}) : ce n'est pas une zone de saisie reconnue (Edit).",
+                    control_name(control.0),
+                    control.0
+                ));
             }
-            let text = read_text(el)?;
-            let r = el.CurrentBoundingRectangle().ok()?;
+            let text = read_text(el).ok_or_else(|| "Texte du champ illisible (ni TextPattern ni ValuePattern).".to_string())?;
+            let r = el.CurrentBoundingRectangle().map_err(|_| "Position du champ illisible.".to_string())?;
             if r.right <= r.left || r.bottom <= r.top {
-                return None;
+                return Err("Le champ n'a pas de position à l'écran.".into());
             }
-            Some((text, Rect { left: r.left, top: r.top, right: r.right, bottom: r.bottom }))
+            Ok((text, Rect { left: r.left, top: r.top, right: r.right, bottom: r.bottom }))
+        }
+    }
+
+    /// Propriétés brutes de l'élément actif, pour le diagnostic.
+    unsafe fn describe(el: &IUIAutomationElement, app: &str) -> Probe {
+        unsafe {
+            let text = |r: WinResult<BSTR>| r.map(|b| b.to_string()).unwrap_or_default();
+            let control = el.CurrentControlType().map(|c| c.0).unwrap_or(0);
+            let vp = value_pattern(el);
+            Probe {
+                app: app.to_string(),
+                control: format!("{} ({control})", control_name(control)),
+                localized_control: text(el.CurrentLocalizedControlType()),
+                aria_role: text(el.CurrentAriaRole()),
+                class: text(el.CurrentClassName()),
+                automation_id: text(el.CurrentAutomationId()),
+                framework: text(el.CurrentFrameworkId()),
+                password: el.CurrentIsPassword().map(|b| b.as_bool()).unwrap_or(false),
+                text_pattern: text_pattern(el).is_some(),
+                value_pattern: vp.is_some(),
+                read_only: vp.and_then(|v| v.CurrentIsReadOnly().ok()).map(|b| b.as_bool()),
+                rect: el.CurrentBoundingRectangle().ok().map(|r| [r.left, r.top, r.right, r.bottom]),
+                ..Default::default()
+            }
         }
     }
 
@@ -477,15 +564,31 @@ mod imp {
             }
         }
 
+        /// Le diagnostic est ouvert dans les réglages (il interroge l'état toutes les 500 ms).
+        fn diag_active(&self) -> bool {
+            self.app.state::<AppState>().bubble_diag_until.lock().unwrap().is_some_and(|t| Instant::now() < t)
+        }
+
+        fn report(&self, probe: Probe) {
+            *self.app.state::<AppState>().bubble_probe.lock().unwrap() = Some(probe);
+        }
+
         fn lose_field(&mut self) {
             self.field = None;
             self.hide();
         }
 
         fn tick(&mut self) {
+            let diag = self.diag_active();
             let cfg = self.config();
             if !cfg.bubble {
                 self.lose_field();
+                if diag {
+                    self.report(Probe {
+                        verdict: "La bulle est désactivée : coche « Afficher une bulle… » ci-dessus, puis Enregistrer.".into(),
+                        ..Default::default()
+                    });
+                }
                 return;
             }
             let fg = unsafe { GetForegroundWindow() } as isize;
@@ -497,19 +600,42 @@ mod imp {
                 }
                 return;
             }
+            let app_name = self.name_of(fg_pid);
             let Ok(el) = (unsafe { self.uia.GetFocusedElement() }) else {
                 self.lose_field();
+                if diag {
+                    let who = if app_name.is_empty() { "L'application au premier plan" } else { app_name.as_str() };
+                    let verdict = format!(
+                        "{who} n'indique aucun élément actif à UI Automation. Si elle est lancée en administrateur, \
+                         Coquille ne peut pas la lire : utilise le raccourci."
+                    );
+                    self.report(Probe { app: app_name, verdict, ..Default::default() });
+                }
                 return;
             };
-            let app_name = self.name_of(fg_pid);
             if cfg.bubble_excluded_apps.iter().any(|x| x.eq_ignore_ascii_case(&app_name)) {
                 self.lose_field();
+                if diag {
+                    let verdict = format!("{app_name} fait partie des applications exclues (liste ci-dessus).");
+                    self.report(Probe { app: app_name, verdict, ..Default::default() });
+                }
                 return;
             }
-            let Some((text, rect)) = (unsafe { read_editable(&el, &app_name) }) else {
-                self.lose_field();
-                return;
+            let mut probe = if diag { Some(unsafe { describe(&el, &app_name) }) } else { None };
+            let (text, rect) = match unsafe { read_editable(&el, &app_name) } {
+                Ok(field) => field,
+                Err(reason) => {
+                    self.lose_field();
+                    if let Some(mut p) = probe {
+                        p.verdict = reason;
+                        self.report(p);
+                    }
+                    return;
+                }
             };
+            if let Some(p) = probe.as_mut() {
+                p.words = word_count(&text);
+            }
 
             let same = match &self.field {
                 Some(f) => unsafe { self.uia.CompareElements(&f.element, &el) }.map(|b| b.as_bool()).unwrap_or(false),
@@ -553,6 +679,14 @@ mod imp {
                     f.checked_text = None;
                 }
                 self.hide();
+                if let Some(mut p) = probe {
+                    p.verdict = if p.words < MIN_WORDS {
+                        format!("Champ reconnu, mais {} mot(s) seulement : la bulle apparaît à partir de {MIN_WORDS}.", p.words)
+                    } else {
+                        format!("Champ reconnu, mais texte trop long pour la bulle (plus de {MAX_UTF16} caractères) : utilise le raccourci.")
+                    };
+                    self.report(p);
+                }
                 return;
             }
             if needs_check && quiet && self.may_request(&cfg) {
@@ -562,6 +696,15 @@ mod imp {
                 self.place_bubble();
             }
             self.emit();
+            if let Some(mut p) = probe {
+                p.shown = self.visible;
+                p.verdict = if self.visible {
+                    "Champ reconnu : la bulle est affichée au bord droit du champ.".into()
+                } else {
+                    "Champ reconnu, mais la fenêtre de la bulle n'a pas pu être placée.".into()
+                };
+                self.report(p);
+            }
         }
 
         fn may_request(&self, cfg: &Config) -> bool {
@@ -873,6 +1016,14 @@ mod imp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn control_names() {
+        assert_eq!(control_name(50004), "Edit");
+        assert_eq!(control_name(50030), "Document");
+        assert_eq!(control_name(50026), "Group");
+        assert_eq!(control_name(12), "?");
+    }
 
     #[test]
     fn words_and_units() {

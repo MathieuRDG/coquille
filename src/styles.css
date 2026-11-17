@@ -343,3 +343,9 @@ ul.small { padding-left: 18px; margin: 6px 0 0; }
 .shortcut-rec.recording kbd { animation: blink 1s steps(2, start) infinite; }
 @keyframes blink { to { visibility: hidden; } }
 fieldset label.small { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+
+/* Diagnostic de la bulle */
+.diag-row { align-items: center; margin-top: 8px; }
+.diag-row .small { margin: 0; }
+.diag { margin-top: 6px; }
+.diag pre { white-space: pre-wrap; word-break: break-word; }

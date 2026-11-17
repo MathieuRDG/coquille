@@ -118,12 +118,22 @@
         <label class="check"><input name="bubble" type="checkbox"> Afficher une bulle à côté du champ où j'écris, dans toutes les applications</label>
         <p class="small muted">
           La bulle apparaît dès qu'un champ contient au moins 3 mots ; un clic affiche les corrections, un clic sur une suggestion corrige directement le mot.
-          Les champs de mot de passe et les barres d'adresse sont ignorés. Le texte des champs est envoyé au serveur LanguageTool configuré :
-          préfère ton propre serveur pour la confidentialité.
+          Les champs de mot de passe et les barres d'adresse sont ignorés. Le texte des champs est envoyé aux serveurs configurés :
+          préfère tes propres serveurs pour la confidentialité.
         </p>
         <label class="small">Applications exclues (nom de l'exécutable, une par ligne)
           <textarea name="bubble_excluded_apps" rows="4" spellcheck="false" placeholder="KeePassXC.exe"></textarea>
         </label>
+        <div class="row diag-row">
+          <button type="button" id="btn-bubble-diag" aria-expanded="false" aria-controls="bubble-diag">Diagnostic</button>
+          <span class="small muted">La bulle n'apparaît pas dans une application ? Le diagnostic explique pourquoi.</span>
+        </div>
+        <div id="bubble-diag" class="diag" hidden>
+          <p class="small muted">Clique dans le champ à tester, puis reviens ici : le dernier relevé reste affiché. Si cette fenêtre reste visible à côté, il se met à jour en direct.</p>
+          <p id="diag-verdict" class="small" role="status"></p>
+          <pre id="diag-details" class="small"></pre>
+          <button type="button" id="btn-diag-copy">Copier le diagnostic</button>
+        </div>
       </fieldset>
 
       <div class="grid2">

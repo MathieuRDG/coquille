@@ -1,7 +1,7 @@
 {
   "name": "coquille",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Correcteur d'orthographe et de grammaire multiplateforme basé sur LanguageTool",
   "license": "MIT",
   "scripts": {

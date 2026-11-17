@@ -117,6 +117,30 @@ const PAGE = 'file://' + path.resolve(__dirname, '../../src/index.html');
     await page.waitForFunction(() => document.getElementById('test-gl-result').textContent.startsWith('Connexion réussie à Grammalecte'));
     await page.click('#btn-test');
     await page.waitForFunction(() => document.getElementById('test-result').textContent.startsWith('Connexion réussie'));
+    // Diagnostic de la bulle : relevé en direct, puis copie.
+    await page.click('#btn-bubble-diag');
+    assert.ok((await page.textContent('#diag-verdict')).startsWith('En attente'));
+    assert.deepStrictEqual(await page.evaluate(() => window.__calls.filter((c) => c[0] === 'bubble_diagnostic')[0][1]), { reset: true });
+    await page.evaluate(() => {
+      window.__probe = {
+        app: 'chrome.exe', control: 'Group (50026)', localized_control: 'groupe', aria_role: '', class: 'editor',
+        automation_id: '', framework: 'Chrome', password: false, text_pattern: true, value_pattern: false, read_only: null,
+        rect: [100, 200, 900, 400], words: 0, shown: false,
+        verdict: 'L’élément actif est de type « Group » (50026) : ce n’est pas une zone de saisie reconnue (Edit).',
+      };
+    });
+    await page.waitForFunction(() => document.getElementById('diag-verdict').textContent.includes('Group'));
+    assert.ok(await page.isVisible('#diag-verdict.error-text'));
+    const details = await page.textContent('#diag-details');
+    assert.ok(details.includes('Application : chrome.exe') && details.includes('TextPattern / ValuePattern : oui / non') && details.includes('Lecture seule : inconnu'), details);
+    await page.click('#btn-diag-copy');
+    await page.waitForFunction(() => window.__calls.some((c) => c[0] === 'copy_text' && c[1].text.includes('Group (50026)')));
+    await page.screenshot({ path: `${OUT}/ui-diagnostic.png` });
+    await page.click('#btn-bubble-diag');
+    assert.ok(await page.isHidden('#bubble-diag'), 'diagnostic arrêté');
+    const polls = await page.evaluate(() => window.__calls.filter((c) => c[0] === 'bubble_diagnostic').length);
+    await page.waitForTimeout(1200);
+    assert.strictEqual(await page.evaluate(() => window.__calls.filter((c) => c[0] === 'bubble_diagnostic').length), polls, 'plus d’interrogation après l’arrêt');
     await page.screenshot({ path: `${OUT}/ui-settings.png` });
     await page.click('dialog button[type=submit]');
     await page.waitForSelector('dialog:not([open])', { state: 'attached' });

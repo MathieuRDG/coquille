@@ -38,6 +38,9 @@ struct AppState {
     /// Canal vers le thread de la bulle (Windows).
     bubble_tx: Mutex<Option<std::sync::mpsc::Sender<bubble::Command>>>,
     bubble_state: Mutex<Option<bubble::BubbleState>>,
+    /// Diagnostic de la bulle : dernier élément observé, et échéance tant que les réglages l'affichent.
+    bubble_probe: Mutex<Option<bubble::Probe>>,
+    bubble_diag_until: Mutex<Option<std::time::Instant>>,
     /// Le texte capturé est le champ entier (bulle) : on sélectionne tout avant de coller.
     replace_field: AtomicBool,
 }
@@ -409,6 +412,16 @@ fn bubble_open_editor(state: State<AppState>) {
     send_bubble(&state, bubble::Command::OpenEditor);
 }
 
+/// Diagnostic de la bulle : active l'observation détaillée pour 3 s et renvoie le dernier relevé.
+#[tauri::command]
+fn bubble_diagnostic(state: State<AppState>, reset: Option<bool>) -> Option<bubble::Probe> {
+    if reset == Some(true) {
+        *state.bubble_probe.lock().unwrap() = None;
+    }
+    *state.bubble_diag_until.lock().unwrap() = Some(std::time::Instant::now() + std::time::Duration::from_secs(3));
+    state.bubble_probe.lock().unwrap().clone()
+}
+
 #[tauri::command]
 fn platform_info(state: State<AppState>) -> PlatformInfo {
     let shortcut_error = state.shortcut_error.lock().unwrap().clone();
@@ -525,6 +538,8 @@ fn main() {
                 shortcut_notice: Mutex::new(None),
                 bubble_tx: Mutex::new(None),
                 bubble_state: Mutex::new(None),
+                bubble_probe: Mutex::new(None),
+                bubble_diag_until: Mutex::new(None),
                 replace_field: AtomicBool::new(false),
             });
 
@@ -591,6 +606,7 @@ fn main() {
             bubble_ignore,
             bubble_recheck,
             bubble_open_editor,
+            bubble_diagnostic,
             take_pending,
             copy_text,
             hide_window,
