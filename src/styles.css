@@ -111,6 +111,8 @@ button.link { border: 0; background: none; padding: 0; color: var(--accent); tex
 .notice.error { background: color-mix(in srgb, var(--red) 12%, var(--surface)); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
 .notice span { flex: 1; }
 .notice button { border: 0; background: none; color: var(--muted); }
+.notice button.notice-action { color: var(--blue); font-weight: 600; white-space: nowrap; padding: 0 4px; }
+.notice button.notice-action:disabled { color: var(--muted); }
 
 /* ---- Zone principale ---- */
 main {
@@ -349,3 +351,6 @@ fieldset label.small { display: flex; flex-direction: column; gap: 4px; margin-t
 .diag-row .small { margin: 0; }
 .diag { margin-top: 6px; }
 .diag pre { white-space: pre-wrap; word-break: break-word; }
+.update-row { align-items: center; margin-top: 8px; }
+.update-row #update-state { flex: 1; }
+#update-notes pre { white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; }

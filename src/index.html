@@ -23,6 +23,7 @@
 
   <div id="notice" class="notice" hidden>
     <span id="notice-text"></span>
+    <button id="notice-action" type="button" class="notice-action" hidden></button>
     <button id="notice-close" type="button" class="icon small" aria-label="Fermer">✕</button>
   </div>
 
@@ -134,6 +135,21 @@
           <pre id="diag-details" class="small"></pre>
           <button type="button" id="btn-diag-copy">Copier le diagnostic</button>
         </div>
+      </fieldset>
+
+      <fieldset id="update-settings">
+        <legend>Mises à jour</legend>
+        <label class="check"><input name="auto_update" type="checkbox"> Installer automatiquement les nouvelles versions</label>
+        <p id="update-help" class="small muted"></p>
+        <div class="row update-row">
+          <span id="update-state" class="small" role="status"></span>
+          <button type="button" id="btn-update-check">Rechercher</button>
+          <button type="button" id="btn-update-install" class="primary" hidden>Installer et redémarrer</button>
+        </div>
+        <details id="update-notes" hidden>
+          <summary class="small">Nouveautés</summary>
+          <pre class="small"></pre>
+        </details>
       </fieldset>
 
       <div class="grid2">

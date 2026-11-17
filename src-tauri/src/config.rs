@@ -53,6 +53,8 @@ pub struct Config {
     pub bubble: bool,
     /// Exécutables où la bulle ne s'affiche jamais (gestionnaires de mots de passe, terminaux…).
     pub bubble_excluded_apps: Vec<String>,
+    /// Installe les mises à jour sans demander (fenêtre fermée, utilisateur absent).
+    pub auto_update: bool,
 }
 
 pub fn default_excluded_apps() -> Vec<String> {
@@ -81,6 +83,7 @@ impl Default for Config {
             api_key: String::new(),
             bubble: true,
             bubble_excluded_apps: default_excluded_apps(),
+            auto_update: true,
         }
     }
 }

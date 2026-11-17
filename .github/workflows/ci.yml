@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call: # réutilisé par release.yml avant de publier
 
 jobs:
   test:

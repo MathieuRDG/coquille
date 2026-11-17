@@ -1,7 +1,10 @@
 name: Release
 
-# Publie un brouillon de release avec les installateurs Windows, macOS et Linux.
-# Déclenchement : pousser un tag (git tag v0.1.0 && git push origin v0.1.0) ou lancer à la main.
+# Compile Windows, macOS et Linux, signe les mises à jour, puis publie la release :
+# les copies de Coquille déjà installées la détectent (latest.json) et se mettent à jour seules.
+# Déclenchement : « Run workflow » (onglet Actions) ou un tag v* poussé.
+# Avant : version incrémentée (tauri.conf.json, Cargo.toml, package.json, PKGBUILD) et section
+# « ## <version> » dans CHANGELOG.md, qui devient la note de version.
 on:
   push:
     tags: ["v*"]
@@ -10,8 +13,51 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      notes: ${{ steps.meta.outputs.notes }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clé de signature des mises à jour
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::Secret TAURI_SIGNING_PRIVATE_KEY absent : Settings > Secrets and variables > Actions > New repository secret (README, « Mises à jour automatiques »)."
+            exit 1
+          fi
+
+      - name: Version et notes (CHANGELOG.md)
+        id: meta
+        run: |
+          version=$(jq -r .version src-tauri/tauri.conf.json)
+          notes=$(awk -v v="$version" '$1 == "##" && $2 == v { on = 1; next } /^## / && on { exit } on' CHANGELOG.md)
+          if [ -z "$(printf '%s' "$notes" | tr -d '[:space:]')" ]; then
+            echo "::error::Pas de section « ## $version » dans CHANGELOG.md."
+            exit 1
+          fi
+          if gh release view "v$version" -R "$GITHUB_REPOSITORY" --json isDraft -q '.isDraft' 2>/dev/null | grep -x false >/dev/null; then
+            echo "::error::La version $version est déjà publiée : incrémente la version avant de relancer."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          { echo "notes<<NOTES_EOF"; printf '%s\n' "$notes"; echo "NOTES_EOF"; } >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  tests:
+    uses: ./.github/workflows/ci.yml
+
   build:
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -52,12 +98,40 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signature des fichiers de mise à jour (.sig), vérifiée par Coquille avant d'installer.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
           releaseName: "Coquille v__VERSION__"
           releaseBody: |
-            Windows : `.msi` ou `-setup.exe` · macOS : `.dmg` (aarch64 = Apple Silicon, x64 = Intel) · Linux : `.AppImage`, `.deb`, `.rpm`.
+            ${{ needs.prepare.outputs.notes }}
+
+            ---
+            Déjà installée (0.4.0 ou plus récente) : Coquille se met à jour toute seule.
+            Première installation — Windows : `-setup.exe` · macOS : `.dmg` (aarch64 = Apple Silicon, x64 = Intel) · Linux : `.AppImage` (mises à jour automatiques), `.deb`, `.rpm`.
             Les binaires ne sont pas signés : voir la section « Installation » du README.
           releaseDraft: true
           prerelease: false
+          # Le setup.exe sert aussi de mise à jour pour Windows (c'est l'installateur recommandé).
+          updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
+
+  publish:
+    needs: [prepare, tests, build]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: v${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Vérifier latest.json (toutes les plateformes signées)
+        run: |
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p latest.json -D "$RUNNER_TEMP"
+          jq . "$RUNNER_TEMP/latest.json"
+          for p in windows-x86_64 darwin-aarch64 darwin-x86_64 linux-x86_64; do
+            jq -e --arg p "$p" '.platforms[$p].signature | length > 0' "$RUNNER_TEMP/latest.json" >/dev/null \
+              || { echo "::error::latest.json : plateforme $p absente ou non signée."; exit 1; }
+          done
+
+      - name: Publier (les copies installées se mettent à jour)
+        run: gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --draft=false --latest

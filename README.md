@@ -25,6 +25,8 @@ Dernière version : **[page des releases](https://github.com/MathieuRDG/coquille
 
 Les binaires ne sont pas signés : Windows et macOS affichent un avertissement au premier lancement (voir « Installation »).
 
+**Mises à jour automatiques** depuis la 0.4.0 : une fois installée, Coquille se met à jour seule (Windows, macOS, AppImage). Voir « Mises à jour ».
+
 ## Est-ce de l'IA ?
 
 Non, pas au sens « ChatGPT ». LanguageTool est un moteur **à règles** : plusieurs milliers de règles grammaticales écrites par des linguistes, un dictionnaire orthographique et, en option, des statistiques de fréquence de mots (les « n-grammes »). C'est la même famille de technologie que le cœur d'**Antidote** (analyse linguistique symbolique). **Grammalecte**, le second moteur facultatif, fonctionne de la même façon, avec des règles écrites spécifiquement pour le français. **QuillBot**, lui, repose surtout sur des modèles d'IA, en particulier pour la reformulation.
@@ -95,6 +97,21 @@ xattr -dr com.apple.quarantine /Applications/Coquille.app
 ```
 
 Au premier raccourci, macOS demande l'autorisation **Accessibilité** (Réglages Système › Confidentialité et sécurité › Accessibilité). Elle est nécessaire pour simuler Cmd+C et Cmd+V. Relance Coquille après l'avoir accordée.
+
+## Mises à jour
+
+À partir de la **0.4.0**, plus besoin de réinstaller : Coquille vérifie au démarrage puis toutes les 6 heures s'il existe une nouvelle release sur GitHub.
+
+| Installation | Comportement |
+|--------------|--------------|
+| Windows (`-setup.exe` ou `.msi`), macOS (`.dmg`), Linux `.AppImage` | Téléchargement en arrière-plan, puis installation quand la fenêtre de Coquille est fermée et que l'ordinateur n'est pas utilisé (sous Windows : 2 minutes sans clavier ni souris). Coquille redémarre seule et garde ses réglages. |
+| Linux `.deb` ou `.rpm` | Téléchargement automatique, installation sur ton clic (« Installer et redémarrer ») : elle demande le mot de passe administrateur. |
+| Arch (PKGBUILD) | Coquille signale la nouvelle version ; mets à jour avec `git pull` puis `makepkg -si` dans `packaging/arch`. |
+
+- ⚙ › **Mises à jour** : désactiver l'installation automatique, « Rechercher », « Installer et redémarrer », notes de version.
+- Chaque mise à jour est **signée** ; Coquille refuse un fichier dont la signature ne correspond pas à la clé publique intégrée.
+- Après une mise à jour, un bandeau l'indique à la prochaine ouverture de la fenêtre.
+- Les versions 0.3.x et antérieures n'ont pas ce mécanisme : installe la 0.4.0 une dernière fois à la main.
 
 ## Utilisation
 
@@ -206,6 +223,7 @@ Avec ton serveur, tu peux aussi brancher l'**extension navigateur officielle Lan
 | Le script Proxmox échoue | Voir « Dépannage de l'installation » dans le [README du serveur](server/README.md). |
 | « Grammalecte injoignable (…) : texte vérifié par LanguageTool seul » | Le serveur Grammalecte ne répond pas : vérifie son état comme ci-dessus. Coquille continue avec LanguageTool en attendant. |
 | Code 429 | Le serveur public te limite : passe sur ton propre serveur. |
+| « Mise à jour : vérification des mises à jour impossible » | Pas d'accès à `github.com` (proxy d'entreprise, pare-feu) : Coquille réessaiera dans 6 heures. Sinon, installe la dernière version à la main. |
 | Pas d'icône dans la barre (GNOME) | Installe l'extension *AppIndicator and KStatusNotifierItem Support*, ou relance `coquille` pour rouvrir la fenêtre. |
 
 La configuration est stockée dans `~/.config/org.coquille.correcteur/config.json` (Linux), `%APPDATA%\org.coquille.correcteur\` (Windows) ou `~/Library/Application Support/org.coquille.correcteur/` (macOS).
@@ -238,7 +256,30 @@ cd src-tauri && cargo test
 npm run test:ui
 ```
 
-**Installateurs Windows, macOS et Linux** : pousse un tag `vX.Y.Z` sur GitHub, ou lance le workflow « Release » à la main dans l'onglet Actions. Le workflow `.github/workflows/release.yml` compile sur les trois OS et crée un brouillon de release avec les installateurs.
+### Publier une version
+
+1. Incrémente la version dans `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `package.json` et `packaging/arch/PKGBUILD`.
+2. Ajoute une section `## X.Y.Z` en tête de `CHANGELOG.md` : elle devient la note de version, affichée aussi dans Coquille.
+3. Lance le workflow **Release** (onglet Actions › Release › Run workflow), ou pousse un tag `vX.Y.Z`.
+
+Le workflow `.github/workflows/release.yml` :
+
+1. relance les tests ;
+2. compile pour Windows, macOS (Apple Silicon et Intel) et Linux ;
+3. signe les fichiers de mise à jour et génère `latest.json` ;
+4. **publie** la release une fois tous les builds réussis : les copies installées se mettent alors à jour.
+
+Si un build échoue, rien n'est publié et la release reste en brouillon.
+
+**Clé de signature (une seule fois).** Le secret `TAURI_SIGNING_PRIVATE_KEY` du dépôt contient la clé privée ; la clé publique correspondante est dans `tauri.conf.json` (`plugins.updater.pubkey`). Pour en créer une :
+
+```bash
+npx tauri signer generate -w ~/.tauri/coquille.key
+```
+
+Copie le contenu de `~/.tauri/coquille.key` dans *Settings › Secrets and variables › Actions › New repository secret* (nom : `TAURI_SIGNING_PRIVATE_KEY`). Si tu as choisi un mot de passe, ajoute-le dans `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. Mets ensuite le contenu de `coquille.key.pub` dans `pubkey`.
+
+> Garde une copie de la clé privée (gestionnaire de mots de passe). Sans elle, plus aucune mise à jour automatique n'est possible : il faudrait une nouvelle clé et réinstaller Coquille à la main partout.
 
 ### Structure
 
@@ -252,9 +293,11 @@ src-tauri/src/
   selection.rs       Capture et remplacement de la sélection, par OS
   bubble.rs          Bulle en direct (Windows, UI Automation)
   config.rs          Paramètres (JSON)
+  updates.rs         Mises à jour automatiques (vérification, téléchargement, installation)
 server/              docker-compose LanguageTool + Grammalecte, scripts d'installation (Proxmox/Debian), n-grammes FR
 packaging/arch/      PKGBUILD + fichier .desktop
 tests/ui/            Tests de l'interface (Playwright, backend simulé)
+CHANGELOG.md         Notes de version (une section par version, reprise dans la release)
 ```
 
 Licence MIT.

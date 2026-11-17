@@ -1,6 +1,6 @@
 [package]
 name = "coquille"
-version = "0.3.1"
+version = "0.4.0"
 description = "Correcteur d'orthographe et de grammaire multiplateforme basé sur LanguageTool"
 authors = ["Coquille contributors"]
 license = "MIT"
@@ -15,6 +15,8 @@ tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-autostart = "2"
+# Mises à jour automatiques (releases GitHub signées). native-tls comme reqwest ci-dessous.
+tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls", "system-proxy", "zip"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # native-tls : utilise le magasin de certificats du système (pratique avec une CA interne de homelab)
@@ -22,13 +24,14 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "def
 arboard = { version = "3", default-features = false }
 enigo = "0.6"
 # Requêtes LanguageTool et Grammalecte en parallèle (tokio est déjà utilisé par Tauri)
-tokio = { version = "1", default-features = false, features = ["macros"] }
+tokio = { version = "1", default-features = false, features = ["macros", "time"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",
   "Win32_System_DataExchange",
+  "Win32_System_SystemInformation",
   "Win32_System_Threading",
   "Win32_UI_WindowsAndMessaging",
   "Win32_UI_Input_KeyboardAndMouse",

@@ -7,6 +7,7 @@ mod engines;
 mod grammalecte;
 mod langtool;
 mod selection;
+mod updates;
 
 use config::Config;
 use serde::Serialize;
@@ -35,6 +36,8 @@ struct AppState {
     capture_seq: AtomicU64,
     shortcut_error: Mutex<Option<String>>,
     shortcut_notice: Mutex<Option<String>>,
+    /// Message affiché une fois après une mise à jour (« Coquille a été mise à jour… »).
+    update_notice: Mutex<Option<String>>,
     /// Canal vers le thread de la bulle (Windows).
     bubble_tx: Mutex<Option<std::sync::mpsc::Sender<bubble::Command>>>,
     bubble_state: Mutex<Option<bubble::BubbleState>>,
@@ -62,6 +65,7 @@ struct PlatformInfo {
     shortcut_active: bool,
     shortcut_error: Option<String>,
     shortcut_notice: Option<String>,
+    update_notice: Option<String>,
     bubble_supported: bool,
     config_path: String,
     version: &'static str,
@@ -156,14 +160,15 @@ pub(crate) fn open_editor_with_field(app: &AppHandle, text: String, hwnd: isize)
     let _ = app.emit_to("main", "capture", capture);
 }
 
-fn handle_args(app: &AppHandle, argv: &[String], first_launch: bool) {
+/// `start_hidden` : premier lancement après une mise à jour installée en arrière-plan.
+fn handle_args(app: &AppHandle, argv: &[String], first_launch: bool, start_hidden: bool) {
     let has = |names: &[&str]| argv.iter().skip(1).any(|a| names.contains(&a.as_str()));
     if has(ARGS_CHECK) {
         trigger_capture(app);
     } else if has(ARGS_SETTINGS) {
         show_main(app);
         let _ = app.emit_to("main", "open-settings", ());
-    } else if !first_launch || !has(ARGS_HIDDEN) {
+    } else if !first_launch || !(has(ARGS_HIDDEN) || start_hidden) {
         show_main(app);
     }
 }
@@ -431,10 +436,30 @@ fn platform_info(state: State<AppState>) -> PlatformInfo {
         shortcut_active: shortcut_supported() && shortcut_error.is_none(),
         shortcut_error,
         shortcut_notice: state.shortcut_notice.lock().unwrap().take(),
+        update_notice: state.update_notice.lock().unwrap().take(),
         bubble_supported: cfg!(windows),
         config_path: state.config_path.display().to_string(),
         version: env!("CARGO_PKG_VERSION"),
     }
+}
+
+#[tauri::command]
+fn update_status(updates: State<updates::Updates>) -> updates::Status {
+    updates.status()
+}
+
+#[tauri::command]
+async fn update_check(app: AppHandle) -> updates::Status {
+    updates::check(&app).await
+}
+
+/// Installe la mise à jour téléchargée et relance Coquille (fenêtre affichée).
+#[tauri::command]
+async fn update_install(app: AppHandle) -> Result<(), String> {
+    // Thread dédié : l'installation d'un .deb ou .rpm attend le mot de passe administrateur.
+    tauri::async_runtime::spawn_blocking(move || updates::install(&app, false))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -510,7 +535,7 @@ fn main() {
     tauri::Builder::default()
         // Doit être le premier plugin : une 2e instance transmet ses arguments à la 1re.
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
-            handle_args(app, &argv, false);
+            handle_args(app, &argv, false, false);
         }))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -523,6 +548,7 @@ fn main() {
                 .build(),
         )
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--cache"])))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let config_path = app.path().app_config_dir()?.join("config.json");
             let cfg = Config::load(&config_path);
@@ -536,6 +562,7 @@ fn main() {
                 capture_seq: AtomicU64::new(0),
                 shortcut_error: Mutex::new(None),
                 shortcut_notice: Mutex::new(None),
+                update_notice: Mutex::new(None),
                 bubble_tx: Mutex::new(None),
                 bubble_state: Mutex::new(None),
                 bubble_probe: Mutex::new(None),
@@ -543,7 +570,11 @@ fn main() {
                 replace_field: AtomicBool::new(false),
             });
 
+            app.manage(updates::Updates::new(app.handle()));
+
             let handle = app.handle().clone();
+            let (start_hidden, update_notice) = updates::take_marker(&handle);
+            *app.state::<AppState>().update_notice.lock().unwrap() = update_notice;
             if shortcut_supported() {
                 register_configured_shortcut(&handle);
             }
@@ -577,7 +608,8 @@ fn main() {
                 }
             }
             let argv: Vec<String> = std::env::args().collect();
-            handle_args(&handle, &argv, true);
+            handle_args(&handle, &argv, true, start_hidden);
+            updates::spawn(handle.clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -614,6 +646,9 @@ fn main() {
             platform_info,
             get_autostart,
             set_autostart,
+            update_status,
+            update_check,
+            update_install,
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de Coquille");

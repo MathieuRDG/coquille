@@ -57,6 +57,8 @@ let recording = false;
 // (décalée), on garde l'analyse de la phrase d'origine sans relancer de vérification.
 let selfEdit = null;
 let engineWarning = null;
+let update = null; // état des mises à jour (backend)
+let updateNotified = ''; // version déjà signalée par le bandeau
 const ignored = new Set();
 
 const isMac = () => platform.os === 'macos';
@@ -87,13 +89,24 @@ function toast(message) {
   toastTimer = setTimeout(() => { el.toast.hidden = true; }, 2200);
 }
 
-function showNotice(message, level = 'info') {
+// action facultative : { label, run } affiche un bouton dans le bandeau.
+function showNotice(message, level = 'info', action = null) {
   if (!message) return hideNotice();
   el.noticeText.textContent = message;
   el.notice.className = `notice ${level}`;
   el.notice.hidden = false;
+  delete el.notice.dataset.engine;
+  const btn = $('notice-action');
+  btn.hidden = !action;
+  btn.disabled = false;
+  btn.textContent = action ? action.label : '';
+  btn.onclick = action ? action.run : null;
 }
-function hideNotice() { el.notice.hidden = true; delete el.notice.dataset.engine; }
+function hideNotice() {
+  el.notice.hidden = true;
+  delete el.notice.dataset.engine;
+  $('notice-action').hidden = true;
+}
 
 // Avertissement d'un moteur (ex. Grammalecte injoignable) : affiché une fois, retiré quand il disparaît.
 function showEngineWarning(w) {
@@ -639,6 +652,85 @@ async function copyDiagnostic() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Mises à jour
+// ---------------------------------------------------------------------------
+const UPDATE_HELP = {
+  auto: 'Coquille vérifie sur GitHub au démarrage puis toutes les 6 heures. Une nouvelle version est téléchargée en arrière-plan, '
+    + 'puis installée quand cette fenêtre est fermée et que l’ordinateur n’est pas utilisé. Coquille redémarre seule et garde tes réglages.',
+  on_demand: 'Installée depuis un paquet .deb ou .rpm : l’installation demande le mot de passe administrateur, '
+    + 'elle se lance donc avec « Installer et redémarrer ».',
+  manual: 'Version compilée (paquet Arch ou développement) : Coquille signale les nouvelles versions, '
+    + 'la mise à jour se fait avec « git pull » puis « makepkg -si » dans packaging/arch.',
+};
+const autoInstalls = (u) => u.mode === 'auto' && config.auto_update !== false;
+const timeLabel = (secs) => new Date(secs * 1000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+function updateText(u) {
+  const v = u.version;
+  switch (u.state) {
+    case 'checking': return ['Recherche d’une nouvelle version…', ''];
+    case 'up_to_date': return [`Coquille ${u.current} est à jour${u.checked_at ? ` (vérifié à ${timeLabel(u.checked_at)})` : ''}.`, 'ok-text'];
+    case 'available': return [`Coquille ${v} est disponible (version installée : ${u.current}).`, ''];
+    case 'downloading': return [`Téléchargement de Coquille ${v}… ${u.progress ?? 0} %`, ''];
+    case 'ready': return [autoInstalls(u)
+      ? `Coquille ${v} est téléchargée : elle s’installera dès que cette fenêtre sera fermée et l’ordinateur inutilisé.`
+      : `Coquille ${v} est prête à être installée.`, 'ok-text'];
+    case 'installing': return [`Installation de Coquille ${v}…`, ''];
+    case 'error': return [`Mise à jour : ${u.message}`, 'error-text'];
+    default: return [`Version installée : ${u.current}.`, ''];
+  }
+}
+
+function renderUpdate() {
+  if (!update) return;
+  const [text, cls] = updateText(update);
+  $('update-state').textContent = text;
+  $('update-state').className = `small ${cls}`.trim();
+  $('update-help').textContent = UPDATE_HELP[update.mode] || '';
+  el.form.elements.auto_update.disabled = update.mode !== 'auto';
+  $('btn-update-check').disabled = ['checking', 'downloading', 'installing'].includes(update.state);
+  $('btn-update-install').hidden = update.state !== 'ready';
+  // Notes de version : la partie avant « --- » (la suite concerne les fichiers de la release).
+  const notes = (update.notes || '').split(/\n-{3,}\s*(\n|$)/)[0].replace(/\*\*|`/g, '').trim();
+  const notesEl = $('update-notes');
+  notesEl.hidden = !notes || !['available', 'downloading', 'ready'].includes(update.state);
+  notesEl.querySelector('summary').textContent = `Nouveautés de la version ${update.version || ''}`;
+  notesEl.querySelector('pre').textContent = notes;
+  notifyUpdate();
+}
+
+// Bandeau dans la fenêtre principale, une fois par version, quand la mise à jour attend l'utilisateur.
+function notifyUpdate() {
+  const u = update;
+  if (updateNotified === u.version) return;
+  if (u.state === 'ready' && !autoInstalls(u)) {
+    updateNotified = u.version;
+    showNotice(`Coquille ${u.version} est prête.`, 'info', { label: 'Installer et redémarrer', run: installUpdate });
+  } else if (u.state === 'available') {
+    updateNotified = u.version;
+    showNotice(`Coquille ${u.version} est disponible : mets à jour le paquet (git pull, puis makepkg -si dans packaging/arch).`, 'info');
+  }
+}
+
+async function checkUpdate() {
+  if (update) { update = { ...update, state: 'checking' }; renderUpdate(); }
+  update = await invoke('update_check');
+  renderUpdate();
+}
+
+async function installUpdate() {
+  $('btn-update-install').disabled = true;
+  $('notice-action').disabled = true;
+  try {
+    await invoke('update_install'); // en cas de succès, Coquille redémarre
+  } catch (e) {
+    showNotice(`Mise à jour : ${e}`, 'error');
+  } finally {
+    $('btn-update-install').disabled = false;
+  }
+}
+
 async function openSettings() {
   hidePopover();
   toggleDiagnostic(false);
@@ -661,6 +753,8 @@ async function openSettings() {
   f.dictionary.value = config.dictionary.join('\n');
   f.disabled_rules.value = config.disabled_rules.join('\n');
   f.autostart.checked = await invoke('get_autostart').catch(() => false);
+  f.auto_update.checked = config.auto_update !== false;
+  renderUpdate();
   $('shortcut-native').hidden = platform.wayland;
   $('shortcut-wayland').hidden = !platform.wayland;
   $('test-result').textContent = '';
@@ -687,6 +781,7 @@ async function saveSettings(ev) {
     restore_clipboard: f.restore_clipboard.checked,
     dictionary: lines(f.dictionary.value),
     disabled_rules: lines(f.disabled_rules.value),
+    auto_update: f.auto_update.checked,
   };
   const serverChanged = next.server_url.trim() !== config.server_url;
   if (recording) await stopRecording();
@@ -889,6 +984,8 @@ function bindEvents() {
   el.dialog.addEventListener('close', () => { if (recording) stopRecording(); toggleDiagnostic(false); });
   $('btn-bubble-diag').addEventListener('click', () => toggleDiagnostic());
   $('btn-diag-copy').addEventListener('click', copyDiagnostic);
+  $('btn-update-check').addEventListener('click', checkUpdate);
+  $('btn-update-install').addEventListener('click', installUpdate);
 }
 
 async function init() {
@@ -905,6 +1002,10 @@ async function init() {
   if (pending) applyCapture(pending);
   if (platform.shortcut_notice) showNotice(platform.shortcut_notice, 'info');
   else if (platform.shortcut_error) showNotice(platform.shortcut_error, 'warn');
+  else if (platform.update_notice) showNotice(platform.update_notice, 'info');
+  await listen('update-status', (e) => { update = e.payload; renderUpdate(); });
+  update = await invoke('update_status').catch(() => null);
+  renderUpdate();
   render();
   el.text.focus();
 }

@@ -141,6 +141,20 @@ const PAGE = 'file://' + path.resolve(__dirname, '../../src/index.html');
     const polls = await page.evaluate(() => window.__calls.filter((c) => c[0] === 'bubble_diagnostic').length);
     await page.waitForTimeout(1200);
     assert.strictEqual(await page.evaluate(() => window.__calls.filter((c) => c[0] === 'bubble_diagnostic').length), polls, 'plus d’interrogation après l’arrêt');
+    // Mises à jour : vérification manuelle, puis version prête (installation automatique : pas de bandeau).
+    assert.strictEqual(await page.textContent('#update-state'), 'Version installée : 0.4.0.');
+    assert.ok((await page.textContent('#update-help')).includes('toutes les 6 heures'));
+    assert.ok(await page.isChecked('input[name=auto_update]'));
+    await page.click('#btn-update-check');
+    await page.waitForFunction(() => document.getElementById('update-state').textContent.startsWith('Coquille 0.4.0 est à jour'));
+    assert.ok(await page.isVisible('#update-state.ok-text'));
+    const ready = { state: 'ready', mode: 'auto', current: '0.4.0', version: '0.4.1', notes: '\n- **Bulle** : Chrome `reconnu`.\n\n---\nWindows : -setup.exe', progress: null, message: null, checked_at: 1794949200 };
+    await page.evaluate((u) => window.__emit('update-status', u), ready);
+    assert.ok((await page.textContent('#update-state')).includes('dès que cette fenêtre sera fermée'));
+    assert.ok(await page.isVisible('#btn-update-install'));
+    await page.click('#update-notes summary');
+    assert.strictEqual(await page.textContent('#update-notes pre'), '- Bulle : Chrome reconnu.');
+    assert.ok(await page.isHidden('#notice') || !(await page.textContent('#notice-text')).includes('0.4.1'), 'pas de bandeau si l’installation est automatique : ' + await page.textContent('#notice-text'));
     await page.screenshot({ path: `${OUT}/ui-settings.png` });
     await page.click('dialog button[type=submit]');
     await page.waitForSelector('dialog:not([open])', { state: 'attached' });
@@ -149,6 +163,18 @@ const PAGE = 'file://' + path.resolve(__dirname, '../../src/index.html');
     assert.strictEqual(saved.bubble, true);
     assert.strictEqual(saved.grammalecte_url, 'http://100.64.0.5:8011');
     assert.deepStrictEqual(saved.bubble_excluded_apps, ['KeePassXC.exe']);
+    assert.strictEqual(saved.auto_update, true);
+
+    // Paquet .deb : la mise à jour prête attend un clic, proposé dans le bandeau.
+    await page.evaluate((u) => window.__emit('update-status', u), { ...ready, version: '0.4.2', mode: 'on_demand' });
+    await page.waitForSelector('#notice:not([hidden]) #notice-action:not([hidden])');
+    assert.strictEqual(await page.textContent('#notice-text'), 'Coquille 0.4.2 est prête.');
+    await page.screenshot({ path: `${OUT}/ui-update-notice.png` });
+    await page.click('#notice-action');
+    await page.waitForFunction(() => window.__calls.some((c) => c[0] === 'update_install'));
+    await page.click('#notice-close');
+    await page.evaluate((u) => window.__emit('update-status', u), { ...ready, version: '0.4.2', mode: 'on_demand' });
+    assert.ok(await page.isHidden('#notice'), 'bandeau affiché une seule fois par version');
 
     // Ouverture depuis la bulle : champ entier
     await page.evaluate(() => window.__emit('capture', { id: 3, text: 'Texte du champ', from_selection: true, mode: 'field', notice: null }));

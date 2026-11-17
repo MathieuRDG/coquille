@@ -8,10 +8,11 @@ const RULES = [
   { re: / \?/g, kind: 'typographie', rule: 'FRENCH_WHITESPACE', msg: 'Une espace fine insécable est requise avant « ? ».', rep: [' ?'] },
   { re: /très très/g, kind: 'style', rule: 'FR_REPEATEDWORDS', msg: 'Répétition : envisagez de supprimer un mot.', rep: ['très'] },
 ];
-let config = { server_url: 'https://api.languagetool.org', language: 'fr', shortcut: 'Ctrl+Alt+Space', picky: false, live: true, restore_clipboard: true, dictionary: [], disabled_rules: [], username: '', api_key: '', bubble: true, bubble_excluded_apps: ['KeePassXC.exe'], grammalecte_url: '' };
+let config = { server_url: 'https://api.languagetool.org', language: 'fr', shortcut: 'Ctrl+Alt+Space', picky: false, live: true, restore_clipboard: true, dictionary: [], disabled_rules: [], username: '', api_key: '', bubble: true, bubble_excluded_apps: ['KeePassXC.exe'], grammalecte_url: '', auto_update: true };
+const UPDATE = { state: 'idle', mode: 'auto', current: '0.4.0', version: null, notes: null, progress: null, message: null, checked_at: null };
 const handlers = {
   get_config: () => config,
-  platform_info: () => ({ os: 'windows', wayland: false, shortcut_active: true, shortcut_error: null, shortcut_notice: null, bubble_supported: true, config_path: '/home/user/.config/org.coquille.correcteur/config.json', version: '0.1.0' }),
+  platform_info: () => ({ os: 'windows', wayland: false, shortcut_active: true, shortcut_error: null, shortcut_notice: null, update_notice: null, bubble_supported: true, config_path: '/home/user/.config/org.coquille.correcteur/config.json', version: '0.1.0' }),
   take_pending: () => null,
   list_languages: () => [{ name: 'French', code: 'fr', longCode: 'fr' }, { name: 'English (US)', code: 'en', longCode: 'en-US' }, { name: 'German (Germany)', code: 'de', longCode: 'de-DE' }],
   check_text: ({ text }) => {
@@ -33,6 +34,9 @@ const handlers = {
   bubble_ignore: () => null, bubble_drop_word: () => null, bubble_drop_rule: () => null, bubble_recheck: () => null, bubble_open_editor: () => null, hide_window: () => null, get_autostart: () => false, set_autostart: () => null,
   apply_text: () => ({ pasted: true, message: null }),
   bubble_diagnostic: () => window.__probe || null,
+  update_status: () => UPDATE,
+  update_check: () => ({ ...UPDATE, state: 'up_to_date', checked_at: 1794949200 }),
+  update_install: () => null,
   test_grammalecte: ({ url }) => `Connexion réussie à Grammalecte 2.3.0 (${url}).`,
   test_server: ({ url }) => `Connexion réussie à ${url} : 31 langues disponibles, dont le français.`,
 };
